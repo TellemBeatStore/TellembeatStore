@@ -1,0 +1,1834 @@
+import { useEffect, useState } from "react";
+import heroWoman from "./assets/HERO WOMAN.png";
+import heroManWoman from "./assets/HERO MAN AND WOMAN.png";
+import LatestBeats from "./LatestBeats";
+import BrowseBeats from "./BrowseBeats";
+import ProducerDashboard from "./ProducerDashboard";
+import ArtistDashboard from "./ArtistDashboard";
+import UploadBeat from "./UploadBeat";
+import UploadDrumPack from "./UploadDrumPack";
+import DrumPacks from "./DrumPacks";
+import Albums from "./Albums";
+import Playlists from "./Playlists";
+import MyBeats from "./MyBeats";
+import MyDrumPacks from "./MyDrumPacks";
+import EditBeat from "./EditBeat";
+import ProducerProfile from "./ProducerProfile";
+import AdminDashboard from "./AdminDashboard";
+import NotificationBell from "./NotificationBell";
+import Messages from "./Messages";
+import AppealBeat from "./AppealBeat";
+import { supabase } from "./supabaseClient";
+import "./App.css";
+
+function App() {
+  const [page, setPage] = useState("home");
+  const [authMode, setAuthMode] = useState("signin");
+  const [session, setSession] = useState(null);
+  const [editingBeat, setEditingBeat] = useState(null);
+  const [selectedProducerId, setSelectedProducerId] = useState(null);
+  const [producerAvatar, setProducerAvatar] = useState("");
+  const [producerName, setProducerName] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [dashboardOpen, setDashboardOpen] = useState(true);
+
+  const [messageRecipientId, setMessageRecipientId] =
+    useState(null);
+  const [messageId, setMessageId] = useState(null);
+
+  const [selectedAppealNotification, setSelectedAppealNotification] =
+    useState(null);
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const [contactName, setContactName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactSubject, setContactSubject] = useState("");
+  const [contactMessage, setContactMessage] = useState("");
+  const [contactSending, setContactSending] = useState(false);
+
+  async function checkAdminStatus(userId) {
+    if (!userId) {
+      setIsAdmin(false);
+      return;
+    }
+
+    const { data: producerData, error: producerError } =
+      await supabase
+        .from("producers")
+        .select("role")
+        .eq("id", userId)
+        .maybeSingle();
+
+    if (producerError) {
+      console.error(
+        "Unable to check administrator status:",
+        producerError.message
+      );
+
+      setIsAdmin(false);
+      return;
+    }
+
+    setIsAdmin(producerData?.role === "admin");
+  }
+
+  useEffect(() => {
+    async function getSession() {
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
+
+      setSession(currentSession);
+
+      if (currentSession?.user?.id) {
+        const { data: producerData } =
+          await supabase
+            .from("producers")
+            .select("avatar_url, display_name")
+            .eq("id", currentSession.user.id)
+            .maybeSingle();
+
+        setProducerAvatar(
+          producerData?.avatar_url || ""
+        );
+
+        setProducerName(
+          producerData?.display_name ||
+            currentSession.user.user_metadata?.display_name ||
+            currentSession.user.user_metadata?.name ||
+            ""
+        );
+
+        await checkAdminStatus(
+          currentSession.user.id
+        );
+      } else {
+        setProducerAvatar("");
+        setProducerName("");
+        setIsAdmin(false);
+      }
+
+      setLoading(false);
+    }
+
+    getSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      async (_event, currentSession) => {
+        setSession(currentSession);
+
+        if (currentSession?.user?.id) {
+          const { data: producerData } =
+            await supabase
+              .from("producers")
+              .select("avatar_url, display_name")
+              .eq("id", currentSession.user.id)
+              .maybeSingle();
+
+          setProducerAvatar(
+            producerData?.avatar_url || ""
+          );
+
+          setProducerName(
+            producerData?.display_name ||
+              currentSession.user.user_metadata?.display_name ||
+              currentSession.user.user_metadata?.name ||
+              ""
+          );
+
+          await checkAdminStatus(
+            currentSession.user.id
+          );
+        } else {
+          setProducerAvatar("");
+          setProducerName("");
+          setIsAdmin(false);
+        }
+      }
+    );
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  async function handleAuth(event) {
+    event.preventDefault();
+
+    setMessage("");
+    setError("");
+
+    if (authMode === "forgot") {
+      if (!email.trim()) {
+        setError("Please enter your email address.");
+        return;
+      }
+
+      setLoading(true);
+
+      const { error: resetError } =
+        await supabase.auth.resetPasswordForEmail(
+          email.trim(),
+          {
+            redirectTo: `${window.location.origin}/`,
+          }
+        );
+
+      setLoading(false);
+
+      if (resetError) {
+        setError(resetError.message);
+        return;
+      }
+
+      setMessage(
+        "Password reset instructions have been sent to your email."
+      );
+
+      return;
+    }
+
+    if (!email.trim() || !password) {
+      setError("Please enter your email and password.");
+      return;
+    }
+
+    setLoading(true);
+
+    if (authMode === "signup") {
+      const { data, error: signUpError } =
+        await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+        });
+
+      setLoading(false);
+
+      if (signUpError) {
+        setError(signUpError.message);
+        return;
+      }
+
+      if (data.session) {
+        setSession(data.session);
+
+        await checkAdminStatus(
+          data.session.user.id
+        );
+
+        setMessage(
+          "Account created successfully."
+        );
+
+        setPage("home");
+      } else {
+        setMessage(
+          "Account created successfully! Check your email to confirm your account."
+        );
+      }
+
+      return;
+    }
+
+    const { data, error: signInError } =
+      await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+    setLoading(false);
+
+    if (signInError) {
+      setError(signInError.message);
+      return;
+    }
+
+    setSession(data.session);
+
+    await checkAdminStatus(
+      data.session.user.id
+    );
+
+    setMessage("Signed in successfully.");
+    setPage("home");
+  }
+
+  async function handleSignOut() {
+    setMessage("");
+    setError("");
+
+    const { error: signOutError } =
+      await supabase.auth.signOut();
+
+    if (signOutError) {
+      setError(signOutError.message);
+      return;
+    }
+
+    setSession(null);
+    setProducerAvatar("");
+    setProducerName("");
+    setIsAdmin(false);
+    setEditingBeat(null);
+    setSelectedProducerId(null);
+    setMessageRecipientId(null);
+    setMessageId(null);
+    setSelectedAppealNotification(null);
+    setPage("home");
+    setMessage("Signed out successfully.");
+  }
+
+  function openSignIn() {
+    setAuthMode("signin");
+    setPage("auth");
+    setMessage("");
+    setError("");
+  }
+
+  function openSignUp() {
+    setAuthMode("signup");
+    setPage("auth");
+    setMessage("");
+    setError("");
+  }
+
+  function openForgotPassword() {
+    setAuthMode("forgot");
+    setPage("auth");
+    setMessage("");
+    setError("");
+  }
+
+  function openProducerDashboard() {
+    if (!session) {
+      openSignUp();
+      return;
+    }
+
+    setPage("producer");
+    setMessage("");
+    setError("");
+  }
+
+  function openArtistDashboard() {
+    if (!session) {
+      openSignUp();
+      return;
+    }
+
+    setPage("artist");
+    setMessage("");
+    setError("");
+  }
+
+  function openAdminDashboard() {
+    if (!session) {
+      openSignIn();
+      return;
+    }
+
+    if (!isAdmin) {
+      setError(
+        "Access denied. Administrator privileges are required."
+      );
+      return;
+    }
+
+    setPage("admin");
+    setMessage("");
+    setError("");
+  }
+
+  /*
+   * OPEN MESSAGES / APPEAL
+   *
+   * Normal message notifications open Messages.
+   *
+   * Beat-removal notifications open the producer
+   * AppealBeat screen.
+   *
+   * Admin appeal notifications open the Admin Dashboard.
+   */
+  function openMessages(options = {}) {
+    if (!session) {
+      openSignIn();
+      return;
+    }
+
+    /*
+     * PRODUCER BEAT REMOVAL APPEAL
+     *
+     * Opens the dedicated AppealBeat screen.
+     */
+    if (
+      options?.openAppeal &&
+      options?.notification
+    ) {
+      setSelectedAppealNotification(
+        options.notification
+      );
+
+      setMessageRecipientId(null);
+      setMessageId(null);
+
+      setPage("appeal");
+      setMessage("");
+      setError("");
+
+      return;
+    }
+
+    /*
+     * ADMIN APPEAL REVIEW
+     *
+     * When an administrator clicks a
+     * "New Beat Appeal" notification,
+     * open the Admin Dashboard instead
+     * of the normal Messages screen.
+     */
+    if (
+      options?.openAdminAppeal &&
+      options?.notification
+    ) {
+      setSelectedAppealNotification(
+        options.notification
+      );
+
+      setMessageRecipientId(null);
+      setMessageId(null);
+
+      setPage("admin");
+      setMessage("");
+      setError("");
+
+      return;
+    }
+
+    /*
+     * NORMAL MESSAGES
+     */
+    setMessageRecipientId(
+      options?.recipientId || null
+    );
+
+    setMessageId(
+      options?.messageId || null
+    );
+
+    setSelectedAppealNotification(null);
+
+    setPage("messages");
+    setMessage("");
+    setError("");
+  }
+
+  function openAppeal(notification) {
+    if (!session) {
+      openSignIn();
+      return;
+    }
+
+    setSelectedAppealNotification(
+      notification || null
+    );
+
+    setPage("appeal");
+    setMessage("");
+    setError("");
+  }
+
+  function openUploadBeat() {
+    if (!session) {
+      openSignIn();
+      return;
+    }
+
+    setPage("upload");
+    setMessage("");
+    setError("");
+  }
+
+  function openUploadDrumPack() {
+    if (!session) {
+      openSignIn();
+      return;
+    }
+
+    setPage("upload-drum-pack");
+    setMessage("");
+    setError("");
+  }
+
+  function openDrumPacks() {
+    setPage("drum-packs");
+    setMessage("");
+    setError("");
+  }
+
+  function openAlbums() {
+    if (!session) {
+      openSignIn();
+      return;
+    }
+
+    setPage("albums");
+    setMessage("");
+    setError("");
+  }
+
+  function openPlaylists() {
+    if (!session) {
+      openSignIn();
+      return;
+    }
+
+    setPage("playlists");
+    setMessage("");
+    setError("");
+  }
+
+  function openMyBeats() {
+    if (!session) {
+      openSignIn();
+      return;
+    }
+
+    setPage("mybeats");
+    setMessage("");
+    setError("");
+  }
+
+  function openMyDrumPacks() {
+    if (!session) {
+      openSignIn();
+      return;
+    }
+
+    setPage("my-drum-packs");
+    setMessage("");
+    setError("");
+  }
+
+  function openEditBeat(beat) {
+    if (!session) {
+      openSignIn();
+      return;
+    }
+
+    setEditingBeat(beat);
+    setPage("editbeat");
+    setMessage("");
+    setError("");
+  }
+
+  function openProducerProfile(producerId) {
+    if (!producerId) {
+      setError("Producer profile is not available.");
+      return;
+    }
+
+    setSelectedProducerId(producerId);
+    setPage("producer-profile");
+    setMessage("");
+    setError("");
+  }
+
+  function openContact() {
+    setEditingBeat(null);
+    setSelectedProducerId(null);
+    setPage("contact");
+    setMessage("");
+    setError("");
+  }
+
+  async function handleContactSubmit(event) {
+    event.preventDefault();
+
+    setMessage("");
+    setError("");
+
+    if (
+      !contactName.trim() ||
+      !contactEmail.trim() ||
+      !contactSubject.trim() ||
+      !contactMessage.trim()
+    ) {
+      setError("Please complete all contact form fields.");
+      return;
+    }
+
+    setContactSending(true);
+
+    const { error: contactError } = await supabase
+      .from("contact_messages")
+      .insert({
+        name: contactName.trim(),
+        email: contactEmail.trim(),
+        subject: contactSubject.trim(),
+        message: contactMessage.trim(),
+      });
+
+    setContactSending(false);
+
+    if (contactError) {
+      console.error(
+        "Contact form error:",
+        contactError.message
+      );
+
+      setError(
+        "We could not send your message right now. Please try again."
+      );
+
+      return;
+    }
+
+    setContactName("");
+    setContactEmail("");
+    setContactSubject("");
+    setContactMessage("");
+
+    setMessage(
+      "Thank you. Your message has been received. Our team will get back to you soon."
+    );
+  }
+
+  function handleNavigate(nextPage, data) {
+    if (nextPage === "producer-profile") {
+      openProducerProfile(data);
+      return;
+    }
+
+    if (nextPage === "home") {
+      goHome();
+      return;
+    }
+
+    if (nextPage === "browse") {
+      goBrowse();
+      return;
+    }
+
+    if (nextPage === "contact") {
+      openContact();
+      return;
+    }
+
+    if (nextPage === "admin") {
+      openAdminDashboard();
+      return;
+    }
+
+    if (nextPage === "messages") {
+      if (data && typeof data === "object") {
+        openMessages(data);
+      } else {
+        openMessages();
+      }
+
+      return;
+    }
+
+    if (nextPage === "appeal") {
+      openAppeal(data);
+      return;
+    }
+
+    if (nextPage === "upload") {
+      openUploadBeat();
+      return;
+    }
+
+    if (nextPage === "upload-drum-pack") {
+      openUploadDrumPack();
+      return;
+    }
+
+    if (nextPage === "drum-packs") {
+      openDrumPacks();
+      return;
+    }
+
+    if (nextPage === "albums") {
+      openAlbums();
+      return;
+    }
+
+    if (nextPage === "playlists") {
+      openPlaylists();
+      return;
+    }
+
+    if (nextPage === "mybeats") {
+      openMyBeats();
+      return;
+    }
+
+    if (nextPage === "my-drum-packs") {
+      openMyDrumPacks();
+      return;
+    }
+
+    if (nextPage === "producer") {
+      openProducerDashboard();
+      return;
+    }
+
+    if (nextPage === "artist") {
+      openArtistDashboard();
+      return;
+    }
+
+    setPage(nextPage);
+  }
+
+  function goHome() {
+    setEditingBeat(null);
+    setSelectedProducerId(null);
+    setMessageRecipientId(null);
+    setMessageId(null);
+    setSelectedAppealNotification(null);
+    setPage("home");
+    setMessage("");
+    setError("");
+  }
+
+  function goBrowse() {
+    setEditingBeat(null);
+    setSelectedProducerId(null);
+    setMessageRecipientId(null);
+    setMessageId(null);
+    setSelectedAppealNotification(null);
+    setPage("browse");
+    setMessage("");
+    setError("");
+  }
+
+  function returnToMyBeats() {
+    setEditingBeat(null);
+    setPage("mybeats");
+    setMessage("");
+    setError("");
+  }
+
+  function handleSearch(event) {
+    event.preventDefault();
+    goBrowse();
+  }
+
+  if (loading && !session) {
+    return (
+      <div className="loading-screen">
+        <div className="loading-content">
+          <div className="loading-logo">
+            TELLEM
+          </div>
+
+          <div className="loading-line"></div>
+
+          <p>Loading Beat Store...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const displayName =
+    producerName ||
+    session?.user?.user_metadata?.display_name ||
+    session?.user?.user_metadata?.name ||
+    session?.user?.email?.split("@")[0] ||
+    "Artist";
+
+  return (
+    <div className="app">
+
+      <header className="app-header">
+        <div className="header-inner">
+
+          <div
+            className="logo"
+            onClick={goHome}
+          >
+            <div className="logo-mark">
+              T
+            </div>
+
+            <div>
+              <span>TELLEM</span>{" "}
+              BEAT STORE
+            </div>
+          </div>
+
+          <nav className="nav">
+
+            <button
+              type="button"
+              onClick={goHome}
+              className={
+                page === "home"
+                  ? "active"
+                  : ""
+              }
+            >
+              HOME
+            </button>
+
+            <button
+              type="button"
+              onClick={goBrowse}
+              className={
+                page === "browse"
+                  ? "active"
+                  : ""
+              }
+            >
+              BEATS
+            </button>
+
+            <button
+              type="button"
+              onClick={openDrumPacks}
+              className={
+                page === "drum-packs"
+                  ? "active"
+                  : ""
+              }
+            >
+              DRUM PACKS
+            </button>
+
+            <button
+              type="button"
+              onClick={openContact}
+              className={
+                page === "contact"
+                  ? "active"
+                  : ""
+              }
+            >
+              CONTACT
+            </button>
+
+            {session && isAdmin && (
+              <button
+                type="button"
+                onClick={openAdminDashboard}
+                className={`admin-nav-button ${
+                  page === "admin"
+                    ? "active"
+                    : ""
+                }`}
+              >
+                ADMIN
+              </button>
+            )}
+
+          </nav>
+
+          {page === "browse" && (
+            <div
+              id="browse-header-filters"
+              className="browse-header-filters"
+            />
+          )}
+
+          <div className="header-hero-image">
+            <img
+              src={heroManWoman}
+              alt=""
+              aria-hidden="true"
+            />
+
+            <div className="header-hero-overlay"></div>
+          </div>
+
+          <div className="header-actions">
+
+            {!session ? (
+              <>
+                <button
+                  type="button"
+                  onClick={openSignIn}
+                  className="header-button"
+                >
+                  SIGN IN
+                </button>
+
+                <button
+                  type="button"
+                  onClick={openSignUp}
+                  className="header-button primary"
+                >
+                  SIGN UP
+                </button>
+              </>
+            ) : (
+              <div className="account-area">
+
+                <NotificationBell
+                  user={session.user}
+                  onOpenMessages={openMessages}
+                  onOpenAppeal={openAppeal}
+                />
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    openProducerProfile(
+                      session.user.id
+                    )
+                  }
+                  className="profile-button"
+                  title="View Profile"
+                >
+                  {producerAvatar ? (
+                    <img
+                      src={producerAvatar}
+                      alt={displayName}
+                      className="header-avatar"
+                    />
+                  ) : (
+                    <div className="header-avatar-fallback">
+                      👤
+                    </div>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    openProducerProfile(
+                      session.user.id
+                    )
+                  }
+                  className="account-profile-name"
+                  title="View Profile"
+                >
+                  {displayName}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="header-button"
+                >
+                  SIGN OUT
+                </button>
+
+              </div>
+            )}
+
+          </div>
+
+        </div>
+      </header>
+
+      {session && (
+        <aside className="dashboard-sidebar">
+
+          <button
+            type="button"
+            className="dashboard-toggle"
+            onClick={() =>
+              setDashboardOpen(
+                (current) => !current
+              )
+            }
+            aria-expanded={dashboardOpen}
+          >
+            <span>DASHBOARD</span>
+
+            <span className="dashboard-toggle-arrow">
+              {dashboardOpen ? "▲" : "▼"}
+            </span>
+          </button>
+
+          {dashboardOpen && (
+            <div className="dashboard-menu">
+
+              <button
+                type="button"
+                onClick={goHome}
+                className={
+                  page === "home"
+                    ? "dashboard-menu-item active"
+                    : "dashboard-menu-item"
+                }
+              >
+                <span>⌂</span>
+                Return Home
+              </button>
+
+              <button
+                type="button"
+                onClick={goBrowse}
+                className={
+                  page === "browse"
+                    ? "dashboard-menu-item active"
+                    : "dashboard-menu-item"
+                }
+              >
+                <span>♪</span>
+                Search Beats
+              </button>
+
+              <button
+                type="button"
+                onClick={openMessages}
+                className={
+                  page === "messages"
+                    ? "dashboard-menu-item active"
+                    : "dashboard-menu-item"
+                }
+              >
+                <span>💬</span>
+                Messages
+              </button>
+
+              <button
+                type="button"
+                onClick={openProducerDashboard}
+                className={
+                  page === "producer"
+                    ? "dashboard-menu-item active"
+                    : "dashboard-menu-item"
+                }
+              >
+                <span>⚙</span>
+                Settings
+              </button>
+
+              <button
+                type="button"
+                onClick={openUploadBeat}
+                className={
+                  page === "upload"
+                    ? "dashboard-menu-item active"
+                    : "dashboard-menu-item"
+                }
+              >
+                <span>↑</span>
+                Upload Beat
+              </button>
+
+              <button
+                type="button"
+                onClick={openUploadDrumPack}
+                className={
+                  page === "upload-drum-pack"
+                    ? "dashboard-menu-item active"
+                    : "dashboard-menu-item"
+                }
+              >
+                <span>▣</span>
+                Upload Drum Pack
+              </button>
+
+              <button
+                type="button"
+                onClick={openDrumPacks}
+                className={
+                  page === "drum-packs"
+                    ? "dashboard-menu-item active"
+                    : "dashboard-menu-item"
+                }
+              >
+                <span>♫</span>
+                Drum Packs
+              </button>
+
+              <button
+                type="button"
+                onClick={openAlbums}
+                className={
+                  page === "albums"
+                    ? "dashboard-menu-item active"
+                    : "dashboard-menu-item"
+                }
+              >
+                <span>▤</span>
+                Albums
+              </button>
+
+              <button
+                type="button"
+                onClick={openPlaylists}
+                className={
+                  page === "playlists"
+                    ? "dashboard-menu-item active"
+                    : "dashboard-menu-item"
+                }
+              >
+                <span>♫</span>
+                Playlists
+              </button>
+
+              <div
+                style={{
+                  marginTop: "10px",
+                  paddingTop: "12px",
+                  borderTop:
+                    "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                <div
+                  style={{
+                    padding:
+                      "0 16px 8px",
+                    color: "#d6a84f",
+                    fontSize: "10px",
+                    fontWeight: "900",
+                    letterSpacing: "1.5px",
+                  }}
+                >
+                  MY UPLOADS
+                </div>
+
+                <button
+                  type="button"
+                  onClick={openMyBeats}
+                  className={
+                    page === "mybeats"
+                      ? "dashboard-menu-item active"
+                      : "dashboard-menu-item"
+                  }
+                  style={{
+                    paddingLeft: "32px",
+                    fontSize: "13px",
+                  }}
+                >
+                  <span>♪</span>
+                  My Beats
+                </button>
+
+                <button
+                  type="button"
+                  onClick={openMyDrumPacks}
+                  className={
+                    page === "my-drum-packs"
+                      ? "dashboard-menu-item active"
+                      : "dashboard-menu-item"
+                  }
+                  style={{
+                    paddingLeft: "32px",
+                    fontSize: "13px",
+                  }}
+                >
+                  <span>🥁</span>
+                  My Drum Packs
+                </button>
+              </div>
+
+            </div>
+          )}
+
+        </aside>
+      )}
+
+      <main
+        className={
+          session
+            ? "app-main logged-in-main"
+            : "app-main"
+        }
+      >
+
+        {session && (
+          <div className="dashboard-hero-image">
+            <img
+              src={heroManWoman}
+              alt="Music production studio"
+            />
+
+            <div className="dashboard-hero-overlay"></div>
+          </div>
+        )}
+
+        {page === "home" && (
+          <>
+            <section className="hero">
+
+              <div className="hero-content">
+
+                <div className="hero-eyebrow">
+                  GHANA • AFRICA • SOUND
+                </div>
+
+                <h1>
+                  FIND.
+                  <span> FEEL.</span>
+                  <strong> CREATE.</strong>
+                </h1>
+
+                <p>
+                  Discover premium original beats from
+                  talented producers. Find the sound that
+                  turns your next idea into music.
+                </p>
+
+                <form
+                  className="hero-search"
+                  onSubmit={handleSearch}
+                >
+                  <span className="search-icon">
+                    🔍
+                  </span>
+
+                  <input
+                    type="search"
+                    value={searchTerm}
+                    onChange={(event) =>
+                      setSearchTerm(
+                        event.target.value
+                      )
+                    }
+                    placeholder="Search beats by genre..."
+                    aria-label="Search beats by genre"
+                  />
+
+                  <button type="submit">
+                    SEARCH
+                  </button>
+                </form>
+
+                <div className="hero-benefits">
+
+                  <div className="benefit-item">
+                    <span className="benefit-icon">
+                      ✓
+                    </span>
+
+                    <div>
+                      <strong>
+                        High Quality Beats
+                      </strong>
+
+                      <small>
+                        Professional sound
+                      </small>
+                    </div>
+                  </div>
+
+                  <div className="benefit-item">
+                    <span className="benefit-icon">
+                      $
+                    </span>
+
+                    <div>
+                      <strong>
+                        Secure Payments
+                      </strong>
+
+                      <small>
+                        Safe & protected
+                      </small>
+                    </div>
+                  </div>
+
+                  <div className="benefit-item">
+                    <span className="benefit-icon">
+                      ↓
+                    </span>
+
+                    <div>
+                      <strong>
+                        Instant Download
+                      </strong>
+
+                      <small>
+                        Get your beat fast
+                      </small>
+                    </div>
+                  </div>
+
+                </div>
+
+                <div className="hero-actions">
+
+                  <button
+                    type="button"
+                    onClick={goBrowse}
+                    className="hero-button primary"
+                  >
+                    EXPLORE BEATS
+                  </button>
+
+                </div>
+
+              </div>
+
+              <div className="hero-decoration">
+
+                <div className="hero-woman">
+
+                  <div className="hero-neon-ring"></div>
+
+                  <img
+                    src={heroWoman}
+                    alt="Tellem Beat Store Producer"
+                  />
+
+                  <div className="hero-glow"></div>
+
+                </div>
+
+              </div>
+
+            </section>
+
+            <section className="latest-section">
+
+              <div className="section-container">
+
+                <div className="section-heading">
+
+                  <div>
+                    <div className="section-kicker">
+                      FRESH FROM THE PRODUCERS
+                    </div>
+
+                    <h2>
+                      NEW RELEASED BEATS
+                    </h2>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={goBrowse}
+                    className="view-all-button"
+                  >
+                    VIEW ALL BEATS
+                    <span>→</span>
+                  </button>
+
+                </div>
+
+                <LatestBeats
+                  onNavigate={handleNavigate}
+                />
+
+              </div>
+
+            </section>
+
+          </>
+        )}
+
+        {page === "messages" && session && (
+          <Messages
+            user={session.user}
+            isAdmin={isAdmin}
+            onNavigate={handleNavigate}
+            initialRecipientId={
+              messageRecipientId
+            }
+            initialMessageId={
+              messageId
+            }
+          />
+        )}
+
+        {page === "appeal" &&
+          session &&
+          selectedAppealNotification && (
+            <AppealBeat
+              user={session.user}
+              notification={
+                selectedAppealNotification
+              }
+              onNavigate={handleNavigate}
+            />
+          )}
+
+        {page === "contact" && (
+          <section className="contact-section">
+
+            <div className="contact-container">
+
+              <div className="contact-header">
+
+                <div className="section-kicker">
+                  GET IN TOUCH
+                </div>
+
+                <h1>
+                  CONTACT TELLEM BEAT STORE
+                </h1>
+
+                <p>
+                  Have a question about a beat, licensing,
+                  purchases, producers or your account?
+                  Send us a message and we'll get back to you.
+                </p>
+
+              </div>
+
+              <div className="contact-grid">
+
+                <div className="contact-info">
+
+                  <div className="contact-card">
+                    <div className="contact-icon">
+                      ♪
+                    </div>
+
+                    <div>
+                      <h3>
+                        Beat Support
+                      </h3>
+
+                      <p>
+                        Need help choosing a beat or
+                        understanding our licensing options?
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="contact-card">
+                    <div className="contact-icon">
+                      ♫
+                    </div>
+
+                    <div>
+                      <h3>
+                        Producer Support
+                      </h3>
+
+                      <p>
+                        Are you a producer looking to
+                        upload and sell your beats on
+                        Tellem Beat Store?
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="contact-card">
+                    <div className="contact-icon">
+                      @
+                    </div>
+
+                    <div>
+                      <h3>
+                        Customer Support
+                      </h3>
+
+                      <p>
+                        Contact our team about your account,
+                        downloads, purchases or other questions.
+                      </p>
+                    </div>
+                  </div>
+
+                </div>
+
+                <form
+                  className="contact-form"
+                  onSubmit={handleContactSubmit}
+                >
+
+                  <label htmlFor="contact-name">
+                    Your Name
+                  </label>
+
+                  <input
+                    id="contact-name"
+                    type="text"
+                    value={contactName}
+                    onChange={(event) =>
+                      setContactName(
+                        event.target.value
+                      )
+                    }
+                    placeholder="Enter your name"
+                    required
+                  />
+
+                  <label htmlFor="contact-email">
+                    Email Address
+                  </label>
+
+                  <input
+                    id="contact-email"
+                    type="email"
+                    value={contactEmail}
+                    onChange={(event) =>
+                      setContactEmail(
+                        event.target.value
+                      )
+                    }
+                    placeholder="you@example.com"
+                    required
+                  />
+
+                  <label htmlFor="contact-subject">
+                    Subject
+                  </label>
+
+                  <input
+                    id="contact-subject"
+                    type="text"
+                    value={contactSubject}
+                    onChange={(event) =>
+                      setContactSubject(
+                        event.target.value
+                      )
+                    }
+                    placeholder="How can we help?"
+                    required
+                  />
+
+                  <label htmlFor="contact-message">
+                    Message
+                  </label>
+
+                  <textarea
+                    id="contact-message"
+                    rows="6"
+                    value={contactMessage}
+                    onChange={(event) =>
+                      setContactMessage(
+                        event.target.value
+                      )
+                    }
+                    placeholder="Write your message..."
+                    required
+                  ></textarea>
+
+                  {error && (
+                    <div className="auth-message error">
+                      {error}
+                    </div>
+                  )}
+
+                  {message && (
+                    <div className="contact-success">
+                      {message}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="contact-submit"
+                    disabled={contactSending}
+                  >
+                    {contactSending
+                      ? "SENDING..."
+                      : "SEND MESSAGE →"}
+                  </button>
+
+                </form>
+
+              </div>
+
+              <button
+                type="button"
+                onClick={goHome}
+                className="contact-back"
+              >
+                ← BACK TO HOME
+              </button>
+
+            </div>
+
+          </section>
+        )}
+
+        {page === "browse" && (
+          <BrowseBeats
+            onBackHome={goHome}
+            onNavigate={handleNavigate}
+            searchTerm={searchTerm}
+          />
+        )}
+
+        {page === "drum-packs" && (
+          <DrumPacks />
+        )}
+
+        {page === "albums" && session && (
+          <Albums
+            user={session.user}
+            onNavigate={handleNavigate}
+          />
+        )}
+
+        {page === "playlists" && session && (
+          <Playlists
+            user={session.user}
+            onNavigate={handleNavigate}
+          />
+        )}
+
+        {page === "producer-profile" &&
+          selectedProducerId && (
+            <ProducerProfile
+              producerId={selectedProducerId}
+              onNavigate={handleNavigate}
+            />
+          )}
+
+        {page === "artist" && session && (
+          <ArtistDashboard
+            user={session.user}
+            onNavigate={handleNavigate}
+          />
+        )}
+
+        {page === "producer" && session && (
+          <ProducerDashboard
+            user={session.user}
+            onUploadBeat={openUploadBeat}
+            onNavigate={handleNavigate}
+          />
+        )}
+
+        {page === "admin" &&
+          session &&
+          isAdmin && (
+            <AdminDashboard
+              user={session.user}
+              onNavigate={handleNavigate}
+            />
+          )}
+
+        {page === "upload" && session && (
+          <UploadBeat
+            user={session.user}
+            onCancel={openProducerDashboard}
+          />
+        )}
+
+        {page === "upload-drum-pack" && session && (
+          <UploadDrumPack
+            user={session.user}
+            onCancel={openProducerDashboard}
+          />
+        )}
+
+        {page === "mybeats" && session && (
+          <MyBeats
+            user={session.user}
+            onEditBeat={openEditBeat}
+            onNavigate={handleNavigate}
+          />
+        )}
+
+        {page === "my-drum-packs" && session && (
+          <MyDrumPacks
+            user={session.user}
+            onNavigate={handleNavigate}
+          />
+        )}
+
+        {page === "editbeat" &&
+          session &&
+          editingBeat && (
+            <EditBeat
+              beat={editingBeat}
+              onSaved={returnToMyBeats}
+              onCancel={returnToMyBeats}
+            />
+          )}
+
+        {page === "auth" && (
+          <section className="auth-section">
+
+            <div className="auth-card">
+
+              <div className="auth-brand">
+
+                <div className="auth-brand-mark">
+                  T
+                </div>
+
+                <span>
+                  TELLEM BEAT STORE
+                </span>
+
+              </div>
+
+              <div className="auth-eyebrow">
+
+                {authMode === "signin"
+                  ? "WELCOME BACK"
+                  : authMode === "signup"
+                  ? "JOIN THE COMMUNITY"
+                  : "ACCOUNT RECOVERY"}
+
+              </div>
+
+              <h1>
+
+                {authMode === "signin"
+                  ? "Welcome Back"
+                  : authMode === "signup"
+                  ? "Create Your Account"
+                  : "Forgot Password"}
+
+              </h1>
+
+              <p className="auth-description">
+
+                {authMode === "signin"
+                  ? "Sign in to continue to your Tellem Beat Store account."
+                  : authMode === "signup"
+                  ? "Create an account to discover beats, connect with producers and build your music profile."
+                  : "Enter your email address and we'll send you instructions to reset your password."}
+
+              </p>
+
+              <form onSubmit={handleAuth}>
+
+                <label>
+                  Email
+                </label>
+
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) =>
+                    setEmail(
+                      event.target.value
+                    )
+                  }
+                  placeholder="you@example.com"
+                  required
+                />
+
+                {authMode !== "forgot" && (
+                  <>
+                    <label>
+                      Password
+                    </label>
+
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(event) =>
+                        setPassword(
+                          event.target.value
+                        )
+                      }
+                      placeholder="Enter your password"
+                      required
+                      minLength={6}
+                    />
+                  </>
+                )}
+
+                {authMode === "signin" && (
+                  <div className="forgot-password-row">
+
+                    <button
+                      type="button"
+                      onClick={
+                        openForgotPassword
+                      }
+                      className="forgot-password-button"
+                    >
+                      Forgot Password?
+                    </button>
+
+                  </div>
+                )}
+
+                {error && (
+                  <div className="auth-message error">
+                    {error}
+                  </div>
+                )}
+
+                {message && (
+                  <div className="auth-message success">
+                    {message}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  className="auth-submit"
+                  disabled={loading}
+                >
+                  {loading
+                    ? "PLEASE WAIT..."
+                    : authMode === "signin"
+                    ? "SIGN IN"
+                    : authMode === "signup"
+                    ? "CREATE ACCOUNT"
+                    : "SEND RESET LINK"}
+                </button>
+
+              </form>
+
+              <div className="switch-auth">
+
+                {authMode === "signin" ? (
+                  <>
+                    Don't have an account?{" "}
+
+                    <button
+                      type="button"
+                      onClick={openSignUp}
+                    >
+                      Sign Up
+                    </button>
+                  </>
+                ) : authMode === "signup" ? (
+                  <>
+                    Already have an account?{" "}
+
+                    <button
+                      type="button"
+                      onClick={openSignIn}
+                    >
+                      Sign In
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    Remember your password?{" "}
+
+                    <button
+                      type="button"
+                      onClick={openSignIn}
+                    >
+                      Sign In
+                    </button>
+                  </>
+                )}
+
+              </div>
+
+            </div>
+
+          </section>
+        )}
+
+      </main>
+
+      <footer className="footer">
+
+        <div className="footer-logo">
+          TELLEM <span>BEAT STORE</span>
+        </div>
+
+        <p>
+          © 2026 Tellem Beat Store. All rights reserved.
+        </p>
+
+      </footer>
+
+    </div>
+  );
+}
+
+export default App;
