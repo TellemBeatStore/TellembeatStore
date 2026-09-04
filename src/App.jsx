@@ -47,6 +47,9 @@ function App() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
 
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -102,17 +105,6 @@ function App() {
       return;
     }
 
-    /*
-     * For new accounts, the signup account type stored
-     * in Supabase Auth metadata takes priority.
-     *
-     * This prevents a Guest account from accidentally
-     * becoming a Producer because of a default role in
-     * the producers table.
-     *
-     * Existing accounts without account_type continue
-     * using the producers table role.
-     */
     let role = metadataAccountType;
 
     if (!role) {
@@ -158,21 +150,88 @@ function App() {
       return;
     }
 
-    /*
-     * Administrator access must always come from the
-     * database. Do not allow normal user metadata to
-     * grant administrator privileges.
-     */
     setIsAdmin(
       producerData?.role === "admin"
     );
   }
 
   useEffect(() => {
+    let mounted = true;
+
+    const recoveryInUrl =
+      window.location.hash.includes("type=recovery") ||
+      window.location.search.includes("type=recovery");
+
+    /*
+     * Register the listener immediately.
+     *
+     * Supabase uses PASSWORD_RECOVERY for password-reset
+     * redirects. We deliberately keep this callback
+     * synchronous and defer profile loading so that we
+     * do not block Supabase's auth event processing.
+     */
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      (_event, currentSession) => {
+        if (!mounted) return;
+
+        if (_event === "PASSWORD_RECOVERY") {
+          setIsPasswordRecovery(true);
+          setPage("reset-password");
+          setMessage("");
+          setError("");
+          setNewPassword("");
+          setConfirmNewPassword("");
+        }
+
+        setSession(currentSession);
+
+        setTimeout(async () => {
+          if (!mounted) return;
+
+          if (currentSession?.user?.id) {
+            await loadUserProfile(
+              currentSession.user.id,
+              currentSession.user
+            );
+
+            await checkAdminStatus(
+              currentSession.user.id
+            );
+          } else {
+            setProducerAvatar("");
+            setProducerName("");
+            setUserRole(null);
+            setIsAdmin(false);
+          }
+
+          if (mounted) {
+            setLoading(false);
+          }
+        }, 0);
+      }
+    );
+
     async function getSession() {
       const {
         data: { session: currentSession },
       } = await supabase.auth.getSession();
+
+      if (!mounted) return;
+
+      /*
+       * Check the recovery URL before displaying the normal
+       * logged-in application.
+       */
+      if (recoveryInUrl) {
+        setIsPasswordRecovery(true);
+        setPage("reset-password");
+        setMessage("");
+        setError("");
+        setNewPassword("");
+        setConfirmNewPassword("");
+      }
 
       setSession(currentSession);
 
@@ -192,36 +251,15 @@ function App() {
         setIsAdmin(false);
       }
 
-      setLoading(false);
+      if (mounted) {
+        setLoading(false);
+      }
     }
 
     getSession();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      async (_event, currentSession) => {
-        setSession(currentSession);
-
-        if (currentSession?.user?.id) {
-          await loadUserProfile(
-            currentSession.user.id,
-            currentSession.user
-          );
-
-          await checkAdminStatus(
-            currentSession.user.id
-          );
-        } else {
-          setProducerAvatar("");
-          setProducerName("");
-          setUserRole(null);
-          setIsAdmin(false);
-        }
-      }
-    );
-
     return () => {
+      mounted = false;
       subscription.unsubscribe();
     };
   }, []);
@@ -361,6 +399,55 @@ function App() {
 
     setMessage("Signed in successfully.");
     setPage("home");
+  }
+
+  async function handlePasswordReset(event) {
+    event.preventDefault();
+
+    setMessage("");
+    setError("");
+
+    if (newPassword.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    setLoading(true);
+
+    const { error: updateError } =
+      await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+    setLoading(false);
+
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+
+    setNewPassword("");
+    setConfirmNewPassword("");
+    setIsPasswordRecovery(false);
+
+    await supabase.auth.signOut();
+
+    setSession(null);
+    setProducerAvatar("");
+    setProducerName("");
+    setUserRole(null);
+    setIsAdmin(false);
+    setPage("auth");
+    setAuthMode("signin");
+
+    setMessage(
+      "Your password has been updated successfully. Please sign in with your new password."
+    );
   }
 
   async function handleSignOut() {
@@ -878,6 +965,111 @@ function App() {
     goBrowse();
   }
 
+  /*
+   * Recovery screen gets priority over the normal
+   * logged-in application.
+   */
+  if (isPasswordRecovery && page === "reset-password") {
+    return (
+      <div className="app">
+
+        <main className="app-main">
+
+          <section className="auth-section">
+
+            <div className="auth-card">
+
+              <div className="auth-brand">
+
+                <div className="auth-brand-mark">
+                  T
+                </div>
+
+                <span>
+                  TELLEM BEAT STORE
+                </span>
+
+              </div>
+
+              <div className="auth-eyebrow">
+                ACCOUNT RECOVERY
+              </div>
+
+              <h1>
+                Reset Your Password
+              </h1>
+
+              <p className="auth-description">
+                Enter a new password for your Tellem Beat Store account.
+              </p>
+
+              <form onSubmit={handlePasswordReset}>
+
+                <label>
+                  New Password
+                </label>
+
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(event) =>
+                    setNewPassword(event.target.value)
+                  }
+                  placeholder="Enter your new password"
+                  required
+                  minLength={6}
+                  autoFocus
+                />
+
+                <label>
+                  Confirm New Password
+                </label>
+
+                <input
+                  type="password"
+                  value={confirmNewPassword}
+                  onChange={(event) =>
+                    setConfirmNewPassword(event.target.value)
+                  }
+                  placeholder="Confirm your new password"
+                  required
+                  minLength={6}
+                />
+
+                {error && (
+                  <div className="auth-message error">
+                    {error}
+                  </div>
+                )}
+
+                {message && (
+                  <div className="auth-message success">
+                    {message}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  className="auth-submit"
+                  disabled={loading}
+                >
+                  {loading
+                    ? "UPDATING PASSWORD..."
+                    : "UPDATE PASSWORD"}
+                </button>
+
+              </form>
+
+            </div>
+
+          </section>
+
+        </main>
+
+      </div>
+    );
+  }
+
   if (loading && !session) {
     return (
       <div className="loading-screen">
@@ -1197,6 +1389,7 @@ function App() {
 
               {isProducer && (
                 <>
+
                   <button
                     type="button"
                     onClick={openUploadBeat}
@@ -1244,6 +1437,7 @@ function App() {
                         "1px solid rgba(255,255,255,0.08)",
                     }}
                   >
+
                     <div
                       style={{
                         padding:
@@ -1290,7 +1484,9 @@ function App() {
                       <span>🥁</span>
                       My Drum Packs
                     </button>
+
                   </div>
+
                 </>
               )}
 
@@ -1321,6 +1517,7 @@ function App() {
 
         {page === "home" && (
           <>
+
             <section className="hero">
 
               <div className="hero-content">
@@ -1345,6 +1542,7 @@ function App() {
                   className="hero-search"
                   onSubmit={handleSearch}
                 >
+
                   <span className="search-icon">
                     🔍
                   </span>
@@ -1364,16 +1562,19 @@ function App() {
                   <button type="submit">
                     SEARCH
                   </button>
+
                 </form>
 
                 <div className="hero-benefits">
 
                   <div className="benefit-item">
+
                     <span className="benefit-icon">
                       ✓
                     </span>
 
                     <div>
+
                       <strong>
                         High Quality Beats
                       </strong>
@@ -1381,15 +1582,19 @@ function App() {
                       <small>
                         Professional sound
                       </small>
+
                     </div>
+
                   </div>
 
                   <div className="benefit-item">
+
                     <span className="benefit-icon">
                       $
                     </span>
 
                     <div>
+
                       <strong>
                         Secure Payments
                       </strong>
@@ -1397,15 +1602,19 @@ function App() {
                       <small>
                         Safe & protected
                       </small>
+
                     </div>
+
                   </div>
 
                   <div className="benefit-item">
+
                     <span className="benefit-icon">
                       ↓
                     </span>
 
                     <div>
+
                       <strong>
                         Instant Download
                       </strong>
@@ -1413,7 +1622,9 @@ function App() {
                       <small>
                         Get your beat fast
                       </small>
+
                     </div>
+
                   </div>
 
                 </div>
@@ -1458,6 +1669,7 @@ function App() {
                 <div className="section-heading">
 
                   <div>
+
                     <div className="section-kicker">
                       FRESH FROM THE PRODUCERS
                     </div>
@@ -1465,6 +1677,7 @@ function App() {
                     <h2>
                       NEW RELEASED BEATS
                     </h2>
+
                   </div>
 
                   <button
@@ -1543,11 +1756,13 @@ function App() {
                 <div className="contact-info">
 
                   <div className="contact-card">
+
                     <div className="contact-icon">
                       ♪
                     </div>
 
                     <div>
+
                       <h3>
                         Beat Support
                       </h3>
@@ -1556,15 +1771,19 @@ function App() {
                         Need help choosing a beat or
                         understanding our licensing options?
                       </p>
+
                     </div>
+
                   </div>
 
                   <div className="contact-card">
+
                     <div className="contact-icon">
                       ♫
                     </div>
 
                     <div>
+
                       <h3>
                         Producer Support
                       </h3>
@@ -1574,15 +1793,19 @@ function App() {
                         upload and sell your beats on
                         Tellem Beat Store?
                       </p>
+
                     </div>
+
                   </div>
 
                   <div className="contact-card">
+
                     <div className="contact-icon">
                       @
                     </div>
 
                     <div>
+
                       <h3>
                         Customer Support
                       </h3>
@@ -1591,7 +1814,9 @@ function App() {
                         Contact our team about your account,
                         downloads, purchases or other questions.
                       </p>
+
                     </div>
+
                   </div>
 
                 </div>
@@ -1835,6 +2060,7 @@ function App() {
 
               {authMode === "signup" ? (
                 <>
+
                   <div className="auth-eyebrow">
                     JOIN THE COMMUNITY
                   </div>
@@ -1875,6 +2101,7 @@ function App() {
                           textAlign: "left",
                         }}
                       >
+
                         <div
                           style={{
                             fontSize: "38px",
@@ -1906,6 +2133,7 @@ function App() {
                           producer profile, albums, drum packs
                           and marketplace uploads.
                         </span>
+
                       </button>
 
                       <button
@@ -1925,6 +2153,7 @@ function App() {
                           textAlign: "left",
                         }}
                       >
+
                         <div
                           style={{
                             fontSize: "38px",
@@ -1957,6 +2186,7 @@ function App() {
                           and enjoy the marketplace. Guests cannot
                           upload beats.
                         </span>
+
                       </button>
 
                     </div>
@@ -1979,6 +2209,7 @@ function App() {
                               : "1px solid rgba(255,255,255,0.12)",
                         }}
                       >
+
                         <strong>
                           {signupType === "producer"
                             ? "🎧 Producer Account"
@@ -2001,6 +2232,7 @@ function App() {
                         >
                           CHANGE
                         </button>
+
                       </div>
 
                       <form onSubmit={handleAuth}>
@@ -2079,9 +2311,11 @@ function App() {
                     </button>
 
                   </div>
+
                 </>
               ) : (
                 <>
+
                   <div className="auth-eyebrow">
 
                     {authMode === "signin"
@@ -2126,6 +2360,7 @@ function App() {
 
                     {authMode !== "forgot" && (
                       <>
+
                         <label>
                           Password
                         </label>
@@ -2142,6 +2377,7 @@ function App() {
                           required
                           minLength={6}
                         />
+
                       </>
                     )}
 
@@ -2191,6 +2427,7 @@ function App() {
 
                     {authMode === "signin" ? (
                       <>
+
                         Don't have an account?{" "}
 
                         <button
@@ -2199,9 +2436,11 @@ function App() {
                         >
                           Sign Up
                         </button>
+
                       </>
                     ) : (
                       <>
+
                         Remember your password?{" "}
 
                         <button
@@ -2210,10 +2449,12 @@ function App() {
                         >
                           Sign In
                         </button>
+
                       </>
                     )}
 
                   </div>
+
                 </>
               )}
 
