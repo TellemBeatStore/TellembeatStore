@@ -97,10 +97,7 @@ function App() {
           ""
       );
 
-      setUserRole(
-        metadataAccountType || "guest"
-      );
-
+      setUserRole(metadataAccountType || "guest");
       setIsAdmin(false);
       return;
     }
@@ -125,6 +122,74 @@ function App() {
 
     setUserRole(role);
     setIsAdmin(role === "admin");
+  }
+
+  /*
+   * Creates the Producer profile only after the user has
+   * an authenticated Supabase session.
+   *
+   * This is important because email confirmation can cause
+   * supabase.auth.signUp() to return a user without a session.
+   * The producers INSERT policy requires auth.uid().
+   */
+  async function ensureProducerProfile(user) {
+    if (!user?.id) return;
+
+    const accountType =
+      user.user_metadata?.account_type ||
+      user.user_metadata?.role ||
+      null;
+
+    if (accountType !== "producer") return;
+
+    const displayName =
+      user.user_metadata?.display_name ||
+      user.user_metadata?.name ||
+      user.email?.split("@")[0] ||
+      "Producer";
+
+    const {
+      data: existingProfile,
+      error: profileCheckError,
+    } = await supabase
+      .from("producers")
+      .select("id, role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profileCheckError) {
+      console.error(
+        "Unable to check Producer profile:",
+        profileCheckError.message
+      );
+      return;
+    }
+
+    if (existingProfile) {
+      return;
+    }
+
+    const { error: producerProfileError } =
+      await supabase
+        .from("producers")
+        .insert({
+          id: user.id,
+          display_name: displayName,
+          bio: null,
+          avatar_url: null,
+          contact_info: null,
+          role: "producer",
+        });
+
+    if (producerProfileError) {
+      console.error(
+        "Producer profile creation error:",
+        producerProfileError.message
+      );
+      return;
+    }
+
+    console.log("Producer profile created successfully.");
   }
 
   async function checkAdminStatus(userId) {
@@ -163,12 +228,11 @@ function App() {
       window.location.search.includes("type=recovery");
 
     /*
-     * Register the listener immediately.
+     * Register the auth listener immediately.
      *
      * Supabase uses PASSWORD_RECOVERY for password-reset
-     * redirects. We deliberately keep this callback
-     * synchronous and defer profile loading so that we
-     * do not block Supabase's auth event processing.
+     * redirects. Profile loading is deferred so that auth
+     * event processing is not blocked.
      */
     const {
       data: { subscription },
@@ -191,6 +255,10 @@ function App() {
           if (!mounted) return;
 
           if (currentSession?.user?.id) {
+            await ensureProducerProfile(
+              currentSession.user
+            );
+
             await loadUserProfile(
               currentSession.user.id,
               currentSession.user
@@ -236,6 +304,10 @@ function App() {
       setSession(currentSession);
 
       if (currentSession?.user?.id) {
+        await ensureProducerProfile(
+          currentSession.user
+        );
+
         await loadUserProfile(
           currentSession.user.id,
           currentSession.user
@@ -344,61 +416,28 @@ function App() {
       /*
        * IMPORTANT:
        *
-       * Supabase Auth creates the user in auth.users, but it
-       * does not automatically create the matching row in
-       * public.producers.
+       * When Supabase email confirmation is enabled,
+       * signUp() can return data.user while data.session
+       * is null.
        *
-       * Beats use beats.producer_id -> producers.id.
+       * The producers INSERT policy requires an authenticated
+       * session, so we must NOT insert the Producer profile
+       * using data.user alone.
        *
-       * Therefore every Producer signup must create its
-       * producer profile immediately.
+       * If email confirmation is disabled and a session is
+       * immediately available, create the profile now.
        *
-       * This works even when email confirmation is enabled
-       * because data.user is available even when
-       * data.session is null.
+       * If email confirmation is enabled, the profile will
+       * be created by ensureProducerProfile() after the user
+       * confirms the email and signs in.
        */
       if (
         accountType === "producer" &&
-        data?.user?.id
+        data?.session?.user?.id
       ) {
-        const producerDisplayName =
-          data.user.user_metadata?.display_name ||
-          data.user.user_metadata?.name ||
-          data.user.email?.split("@")[0] ||
-          "Producer";
-
-        const {
-          error: producerProfileError,
-        } = await supabase
-          .from("producers")
-          .upsert(
-            {
-              id: data.user.id,
-              display_name: producerDisplayName,
-              bio: null,
-              avatar_url: null,
-              contact_info: null,
-              role: "producer",
-            },
-            {
-              onConflict: "id",
-            }
-          );
-
-        if (producerProfileError) {
-          console.error(
-            "Producer profile creation error:",
-            producerProfileError.message
-          );
-
-          setLoading(false);
-
-          setError(
-            "Your Producer account was created, but your Producer profile could not be created. Please try signing in again. If the problem continues, contact support."
-          );
-
-          return;
-        }
+        await ensureProducerProfile(
+          data.session.user
+        );
       }
 
       setLoading(false);
@@ -448,6 +487,14 @@ function App() {
     }
 
     setSession(data.session);
+
+    /*
+     * The user is now authenticated, so the Producer
+     * profile can safely be created if it does not exist.
+     */
+    await ensureProducerProfile(
+      data.session.user
+    );
 
     await loadUserProfile(
       data.session.user.id,
@@ -1033,15 +1080,10 @@ function App() {
   if (isPasswordRecovery && page === "reset-password") {
     return (
       <div className="app">
-
         <main className="app-main">
-
           <section className="auth-section">
-
             <div className="auth-card">
-
               <div className="auth-brand">
-
                 <div className="auth-brand-mark">
                   T
                 </div>
@@ -1049,7 +1091,6 @@ function App() {
                 <span>
                   TELLEM BEAT STORE
                 </span>
-
               </div>
 
               <div className="auth-eyebrow">
@@ -1065,7 +1106,6 @@ function App() {
               </p>
 
               <form onSubmit={handlePasswordReset}>
-
                 <label>
                   New Password
                 </label>
@@ -1118,15 +1158,10 @@ function App() {
                     ? "UPDATING PASSWORD..."
                     : "UPDATE PASSWORD"}
                 </button>
-
               </form>
-
             </div>
-
           </section>
-
         </main>
-
       </div>
     );
   }
@@ -1160,10 +1195,8 @@ function App() {
 
   return (
     <div className="app">
-
       <header className="app-header">
         <div className="header-inner">
-
           <div
             className="logo"
             onClick={goHome}
@@ -1179,7 +1212,6 @@ function App() {
           </div>
 
           <nav className="nav">
-
             <button
               type="button"
               onClick={goHome}
@@ -1241,7 +1273,6 @@ function App() {
                 ADMIN
               </button>
             )}
-
           </nav>
 
           {page === "browse" && (
@@ -1262,7 +1293,6 @@ function App() {
           </div>
 
           <div className="header-actions">
-
             {!session ? (
               <>
                 <button
@@ -1283,7 +1313,6 @@ function App() {
               </>
             ) : (
               <div className="account-area">
-
                 <NotificationBell
                   user={session.user}
                   onOpenMessages={openMessages}
@@ -1333,18 +1362,14 @@ function App() {
                 >
                   SIGN OUT
                 </button>
-
               </div>
             )}
-
           </div>
-
         </div>
       </header>
 
       {session && (
         <aside className="dashboard-sidebar">
-
           <button
             type="button"
             className="dashboard-toggle"
@@ -1364,7 +1389,6 @@ function App() {
 
           {dashboardOpen && (
             <div className="dashboard-menu">
-
               <button
                 type="button"
                 onClick={goHome}
@@ -1450,7 +1474,6 @@ function App() {
 
               {isProducer && (
                 <>
-
                   <button
                     type="button"
                     onClick={openUploadBeat}
@@ -1498,7 +1521,6 @@ function App() {
                         "1px solid rgba(255,255,255,0.08)",
                     }}
                   >
-
                     <div
                       style={{
                         padding:
@@ -1545,15 +1567,11 @@ function App() {
                       <span>🥁</span>
                       My Drum Packs
                     </button>
-
                   </div>
-
                 </>
               )}
-
             </div>
           )}
-
         </aside>
       )}
 
@@ -1564,7 +1582,6 @@ function App() {
             : "app-main"
         }
       >
-
         {session && (
           <div className="dashboard-hero-image">
             <img
@@ -1578,11 +1595,8 @@ function App() {
 
         {page === "home" && (
           <>
-
             <section className="hero">
-
               <div className="hero-content">
-
                 <div className="hero-eyebrow">
                   GHANA • AFRICA • SOUND
                 </div>
@@ -1603,7 +1617,6 @@ function App() {
                   className="hero-search"
                   onSubmit={handleSearch}
                 >
-
                   <span className="search-icon">
                     🔍
                   </span>
@@ -1623,19 +1636,15 @@ function App() {
                   <button type="submit">
                     SEARCH
                   </button>
-
                 </form>
 
                 <div className="hero-benefits">
-
                   <div className="benefit-item">
-
                     <span className="benefit-icon">
                       ✓
                     </span>
 
                     <div>
-
                       <strong>
                         High Quality Beats
                       </strong>
@@ -1643,19 +1652,15 @@ function App() {
                       <small>
                         Professional sound
                       </small>
-
                     </div>
-
                   </div>
 
                   <div className="benefit-item">
-
                     <span className="benefit-icon">
                       $
                     </span>
 
                     <div>
-
                       <strong>
                         Secure Payments
                       </strong>
@@ -1663,19 +1668,15 @@ function App() {
                       <small>
                         Safe & protected
                       </small>
-
                     </div>
-
                   </div>
 
                   <div className="benefit-item">
-
                     <span className="benefit-icon">
                       ↓
                     </span>
 
                     <div>
-
                       <strong>
                         Instant Download
                       </strong>
@@ -1683,15 +1684,11 @@ function App() {
                       <small>
                         Get your beat fast
                       </small>
-
                     </div>
-
                   </div>
-
                 </div>
 
                 <div className="hero-actions">
-
                   <button
                     type="button"
                     onClick={goBrowse}
@@ -1699,15 +1696,11 @@ function App() {
                   >
                     EXPLORE BEATS
                   </button>
-
                 </div>
-
               </div>
 
               <div className="hero-decoration">
-
                 <div className="hero-woman">
-
                   <div className="hero-neon-ring"></div>
 
                   <img
@@ -1716,21 +1709,14 @@ function App() {
                   />
 
                   <div className="hero-glow"></div>
-
                 </div>
-
               </div>
-
             </section>
 
             <section className="latest-section">
-
               <div className="section-container">
-
                 <div className="section-heading">
-
                   <div>
-
                     <div className="section-kicker">
                       FRESH FROM THE PRODUCERS
                     </div>
@@ -1738,7 +1724,6 @@ function App() {
                     <h2>
                       NEW RELEASED BEATS
                     </h2>
-
                   </div>
 
                   <button
@@ -1749,17 +1734,13 @@ function App() {
                     VIEW ALL BEATS
                     <span>→</span>
                   </button>
-
                 </div>
 
                 <LatestBeats
                   onNavigate={handleNavigate}
                 />
-
               </div>
-
             </section>
-
           </>
         )}
 
@@ -1791,11 +1772,8 @@ function App() {
 
         {page === "contact" && (
           <section className="contact-section">
-
             <div className="contact-container">
-
               <div className="contact-header">
-
                 <div className="section-kicker">
                   GET IN TOUCH
                 </div>
@@ -1809,21 +1787,16 @@ function App() {
                   purchases, producers or your account?
                   Send us a message and we'll get back to you.
                 </p>
-
               </div>
 
               <div className="contact-grid">
-
                 <div className="contact-info">
-
                   <div className="contact-card">
-
                     <div className="contact-icon">
                       ♪
                     </div>
 
                     <div>
-
                       <h3>
                         Beat Support
                       </h3>
@@ -1832,19 +1805,15 @@ function App() {
                         Need help choosing a beat or
                         understanding our licensing options?
                       </p>
-
                     </div>
-
                   </div>
 
                   <div className="contact-card">
-
                     <div className="contact-icon">
                       ♫
                     </div>
 
                     <div>
-
                       <h3>
                         Producer Support
                       </h3>
@@ -1854,19 +1823,15 @@ function App() {
                         upload and sell your beats on
                         Tellem Beat Store?
                       </p>
-
                     </div>
-
                   </div>
 
                   <div className="contact-card">
-
                     <div className="contact-icon">
                       @
                     </div>
 
                     <div>
-
                       <h3>
                         Customer Support
                       </h3>
@@ -1875,18 +1840,14 @@ function App() {
                         Contact our team about your account,
                         downloads, purchases or other questions.
                       </p>
-
                     </div>
-
                   </div>
-
                 </div>
 
                 <form
                   className="contact-form"
                   onSubmit={handleContactSubmit}
                 >
-
                   <label htmlFor="contact-name">
                     Your Name
                   </label>
@@ -1976,9 +1937,7 @@ function App() {
                       ? "SENDING..."
                       : "SEND MESSAGE →"}
                   </button>
-
                 </form>
-
               </div>
 
               <button
@@ -1988,9 +1947,7 @@ function App() {
               >
                 ← BACK TO HOME
               </button>
-
             </div>
-
           </section>
         )}
 
@@ -2104,11 +2061,8 @@ function App() {
 
         {page === "auth" && (
           <section className="auth-section">
-
             <div className="auth-card">
-
               <div className="auth-brand">
-
                 <div className="auth-brand-mark">
                   T
                 </div>
@@ -2116,12 +2070,10 @@ function App() {
                 <span>
                   TELLEM BEAT STORE
                 </span>
-
               </div>
 
               {authMode === "signup" ? (
                 <>
-
                   <div className="auth-eyebrow">
                     JOIN THE COMMUNITY
                   </div>
@@ -2144,7 +2096,6 @@ function App() {
                         marginTop: "24px",
                       }}
                     >
-
                       <button
                         type="button"
                         onClick={() =>
@@ -2162,7 +2113,6 @@ function App() {
                           textAlign: "left",
                         }}
                       >
-
                         <div
                           style={{
                             fontSize: "38px",
@@ -2194,7 +2144,6 @@ function App() {
                           producer profile, albums, drum packs
                           and marketplace uploads.
                         </span>
-
                       </button>
 
                       <button
@@ -2214,7 +2163,6 @@ function App() {
                           textAlign: "left",
                         }}
                       >
-
                         <div
                           style={{
                             fontSize: "38px",
@@ -2247,13 +2195,10 @@ function App() {
                           and enjoy the marketplace. Guests cannot
                           upload beats.
                         </span>
-
                       </button>
-
                     </div>
                   ) : (
                     <>
-
                       <div
                         style={{
                           marginTop: "18px",
@@ -2270,7 +2215,6 @@ function App() {
                               : "1px solid rgba(255,255,255,0.12)",
                         }}
                       >
-
                         <strong>
                           {signupType === "producer"
                             ? "🎧 Producer Account"
@@ -2293,11 +2237,9 @@ function App() {
                         >
                           CHANGE
                         </button>
-
                       </div>
 
                       <form onSubmit={handleAuth}>
-
                         <label>
                           Email
                         </label>
@@ -2354,14 +2296,11 @@ function App() {
                             ? "CREATE PRODUCER ACCOUNT"
                             : "CREATE GUEST ACCOUNT"}
                         </button>
-
                       </form>
-
                     </>
                   )}
 
                   <div className="switch-auth">
-
                     Already have an account?{" "}
 
                     <button
@@ -2370,39 +2309,29 @@ function App() {
                     >
                       Sign In
                     </button>
-
                   </div>
-
                 </>
               ) : (
                 <>
-
                   <div className="auth-eyebrow">
-
                     {authMode === "signin"
                       ? "WELCOME BACK"
                       : "ACCOUNT RECOVERY"}
-
                   </div>
 
                   <h1>
-
                     {authMode === "signin"
                       ? "Welcome Back"
                       : "Forgot Password"}
-
                   </h1>
 
                   <p className="auth-description">
-
                     {authMode === "signin"
                       ? "Sign in to continue to your Tellem Beat Store account."
                       : "Enter your email address and we'll send you instructions to reset your password."}
-
                   </p>
 
                   <form onSubmit={handleAuth}>
-
                     <label>
                       Email
                     </label>
@@ -2421,7 +2350,6 @@ function App() {
 
                     {authMode !== "forgot" && (
                       <>
-
                         <label>
                           Password
                         </label>
@@ -2438,13 +2366,11 @@ function App() {
                           required
                           minLength={6}
                         />
-
                       </>
                     )}
 
                     {authMode === "signin" && (
                       <div className="forgot-password-row">
-
                         <button
                           type="button"
                           onClick={
@@ -2454,7 +2380,6 @@ function App() {
                         >
                           Forgot Password?
                         </button>
-
                       </div>
                     )}
 
@@ -2481,14 +2406,11 @@ function App() {
                         ? "SIGN IN"
                         : "SEND RESET LINK"}
                     </button>
-
                   </form>
 
                   <div className="switch-auth">
-
                     {authMode === "signin" ? (
                       <>
-
                         Don't have an account?{" "}
 
                         <button
@@ -2497,11 +2419,9 @@ function App() {
                         >
                           Sign Up
                         </button>
-
                       </>
                     ) : (
                       <>
-
                         Remember your password?{" "}
 
                         <button
@@ -2510,24 +2430,17 @@ function App() {
                         >
                           Sign In
                         </button>
-
                       </>
                     )}
-
                   </div>
-
                 </>
               )}
-
             </div>
-
           </section>
         )}
-
       </main>
 
       <footer className="footer">
-
         <div className="footer-logo">
           TELLEM <span>BEAT STORE</span>
         </div>
@@ -2535,9 +2448,7 @@ function App() {
         <p>
           © 2026 Tellem Beat Store. All rights reserved.
         </p>
-
       </footer>
-
     </div>
   );
 }
