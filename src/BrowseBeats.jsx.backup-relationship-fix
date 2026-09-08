@@ -1,4 +1,4 @@
-﻿import { createPortal } from "react-dom";
+import { createPortal } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabaseClient";
 
@@ -137,7 +137,7 @@ function BrowseBeats({
           allow_remakes,
           allow_songs,
           allow_instrumental_samples,
-          producers!beats_producer_id_fkey (
+          producers (
             id,
             display_name,
             bio,
@@ -1066,7 +1066,7 @@ function BrowseBeats({
                                 "22px",
                             }}
                           >
-                            ðŸŽ§
+                            🎧
                           </div>
                         )}
 
@@ -1184,8 +1184,8 @@ function BrowseBeats({
                           beat.id
                             ? "Saving..."
                             : beatIsLiked
-                            ? `â¤ï¸ Liked ${beat.likes || 0}`
-                            : `ðŸ‘ ${beat.likes || 0}`}
+                            ? `❤️ Liked ${beat.likes || 0}`
+                            : `👍 ${beat.likes || 0}`}
                         </button>
 
                         <button
@@ -1197,7 +1197,7 @@ function BrowseBeats({
                             )
                           }
                         >
-                          ðŸ‘Ž{" "}
+                          👎{" "}
                           {beat.dislikes ||
                             0}
                         </button>
@@ -1219,8 +1219,8 @@ function BrowseBeats({
                           beat.id
                             ? "Saving..."
                             : beatIsSaved
-                            ? "â¤ï¸ Saved"
-                            : "ðŸ¤ Save Beat"}
+                            ? "❤️ Saved"
+                            : "🤍 Save Beat"}
                         </button>
 
                         <button
@@ -1324,7 +1324,7 @@ function BrowseBeats({
                         </p>
 
                         <p>
-                          Artist-name â€œType Beatâ€
+                          Artist-name “Type Beat”
                           titles are permitted for
                           descriptive and search
                           purposes only and do not
@@ -1486,4 +1486,3 @@ function BrowseBeats({
 }
 
 export default BrowseBeats;
-

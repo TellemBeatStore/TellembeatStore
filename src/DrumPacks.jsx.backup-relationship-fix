@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 
 function DrumPacks() {
@@ -27,7 +27,7 @@ function DrumPacks() {
           cover_url,
           downloads,
           created_at,
-          producers!beats_producer_id_fkey (
+          producers (
             id,
             display_name,
             avatar_url
@@ -200,7 +200,7 @@ function DrumPacks() {
           <div style={styles.empty}>
 
             <div style={styles.emptyIcon}>
-              ðŸ¥
+              🥁
             </div>
 
             <h2>
@@ -242,7 +242,7 @@ function DrumPacks() {
                       <span
                         style={styles.placeholderIcon}
                       >
-                        ðŸ¥
+                        🥁
                       </span>
 
                       <small>
@@ -272,7 +272,7 @@ function DrumPacks() {
                   </h2>
 
                   <p style={styles.producer}>
-                    ðŸŽ§ {getProducerName(pack)}
+                    🎧 {getProducerName(pack)}
                   </p>
 
                   {pack.genre && (
@@ -290,7 +290,7 @@ function DrumPacks() {
                   <div style={styles.meta}>
 
                     <span>
-                      â¬‡{" "}
+                      ⬇{" "}
                       {Number(pack.downloads || 0)}{" "}
                       downloads
                     </span>
@@ -308,7 +308,7 @@ function DrumPacks() {
                     }
                     style={styles.downloadButton}
                   >
-                    â†“ FREE DOWNLOAD
+                    ↓ FREE DOWNLOAD
                   </button>
 
                 </div>

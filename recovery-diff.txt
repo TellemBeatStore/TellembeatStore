@@ -1,0 +1,211 @@
+﻿diff --git a/src/App.jsx b/src/App.jsx
+index d6d03d7..9666a28 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -47,6 +47,9 @@ function App() {
+ 
+   const [email, setEmail] = useState("");
+   const [password, setPassword] = useState("");
++  const [newPassword, setNewPassword] = useState("");
++  const [confirmNewPassword, setConfirmNewPassword] = useState("");
++  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+ 
+   const [message, setMessage] = useState("");
+   const [error, setError] = useState("");
+@@ -176,6 +179,17 @@ function App() {
+ 
+       setSession(currentSession);
+ 
++      const recoveryInUrl =
++        window.location.hash.includes("type=recovery") ||
++        window.location.search.includes("type=recovery");
++
++      if (recoveryInUrl) {
++        setIsPasswordRecovery(true);
++        setPage("reset-password");
++        setMessage("");
++        setError("");
++      }
++
+       if (currentSession?.user?.id) {
+         await loadUserProfile(
+           currentSession.user.id,
+@@ -201,8 +215,27 @@ function App() {
+       data: { subscription },
+     } = supabase.auth.onAuthStateChange(
+       async (_event, currentSession) => {
++        if (_event === "PASSWORD_RECOVERY") {
++          setIsPasswordRecovery(true);
++          setPage("reset-password");
++          setMessage("");
++          setError("");
++          setNewPassword("");
++          setConfirmNewPassword("");
++        }
+         setSession(currentSession);
+ 
++      const recoveryInUrl =
++        window.location.hash.includes("type=recovery") ||
++        window.location.search.includes("type=recovery");
++
++      if (recoveryInUrl) {
++        setIsPasswordRecovery(true);
++        setPage("reset-password");
++        setMessage("");
++        setError("");
++      }
++
+         if (currentSession?.user?.id) {
+           await loadUserProfile(
+             currentSession.user.id,
+@@ -363,6 +396,54 @@ function App() {
+     setPage("home");
+   }
+ 
++  async function handlePasswordReset(event) {
++    event.preventDefault();
++
++    setMessage("");
++    setError("");
++
++    if (newPassword.length < 6) {
++      setError("Password must be at least 6 characters.");
++      return;
++    }
++
++    if (newPassword !== confirmNewPassword) {
++      setError("Passwords do not match.");
++      return;
++    }
++
++    setLoading(true);
++
++    const { error: updateError } =
++      await supabase.auth.updateUser({
++        password: newPassword,
++      });
++
++    setLoading(false);
++
++    if (updateError) {
++      setError(updateError.message);
++      return;
++    }
++
++    setNewPassword("");
++    setConfirmNewPassword("");
++    setIsPasswordRecovery(false);
++
++    await supabase.auth.signOut();
++
++    setSession(null);
++    setProducerAvatar("");
++    setProducerName("");
++    setUserRole(null);
++    setIsAdmin(false);
++    setPage("auth");
++    setAuthMode("signin");
++
++    setMessage(
++      "Your password has been updated successfully. Please sign in with your new password."
++    );
++  }
+   async function handleSignOut() {
+     setMessage("");
+     setError("");
+@@ -1816,6 +1897,95 @@ function App() {
+             />
+           )}
+ 
++        {page === "reset-password" && isPasswordRecovery && (
++          <section className="auth-section">
++
++            <div className="auth-card">
++
++              <div className="auth-brand">
++
++                <div className="auth-brand-mark">
++                  T
++                </div>
++
++                <span>
++                  TELLEM BEAT STORE
++                </span>
++
++              </div>
++
++              <div className="auth-eyebrow">
++                ACCOUNT RECOVERY
++              </div>
++
++              <h1>
++                Reset Your Password
++              </h1>
++
++              <p className="auth-description">
++                Enter a new password for your Tellem Beat Store account.
++              </p>
++
++              <form onSubmit={handlePasswordReset}>
++
++                <label>
++                  New Password
++                </label>
++
++                <input
++                  type="password"
++                  value={newPassword}
++                  onChange={(event) =>
++                    setNewPassword(event.target.value)
++                  }
++                  placeholder="Enter your new password"
++                  required
++                  minLength={6}
++                />
++
++                <label>
++                  Confirm New Password
++                </label>
++
++                <input
++                  type="password"
++                  value={confirmNewPassword}
++                  onChange={(event) =>
++                    setConfirmNewPassword(event.target.value)
++                  }
++                  placeholder="Confirm your new password"
++                  required
++                  minLength={6}
++                />
++
++                {error && (
++                  <div className="auth-message error">
++                    {error}
++                  </div>
++                )}
++
++                {message && (
++                  <div className="auth-message success">
++                    {message}
++                  </div>
++                )}
++
++                <button
++                  type="submit"
++                  className="auth-submit"
++                  disabled={loading}
++                >
++                  {loading
++                    ? "UPDATING PASSWORD..."
++                    : "UPDATE PASSWORD"}
++                </button>
++
++              </form>
++
++            </div>
++
++          </section>
++        )}
+         {page === "auth" && (
+           <section className="auth-section">
+ 
