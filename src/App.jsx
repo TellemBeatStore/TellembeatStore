@@ -21,8 +21,117 @@ import AppealBeat from "./AppealBeat";
 import { supabase } from "./supabaseClient";
 import "./App.css";
 
+/*
+ * Convert a producer display name into a clean public URL slug.
+ *
+ * Example:
+ * Tellembeatzgo -> tellembeatzgo
+ * Candy Boy Tellem -> candy-boy-tellem
+ */
+function createProducerSlug(name) {
+  return String(name || "")
+    .toLowerCase()
+    .trim()
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+/*
+ * Read the current browser URL and convert it into
+ * the internal page name used by the existing application.
+ */
+function getRouteFromUrl() {
+  const pathname =
+    window.location.pathname.replace(/\/+$/, "") || "/";
+
+  const searchParams = new URLSearchParams(
+    window.location.search
+  );
+
+  /*
+   * Keep existing beat-detail URLs working.
+   *
+   * Example:
+   * /?beat=0cd8029a-246d-4e46-8fed-465767e2920f
+   */
+  if (searchParams.get("beat")) {
+    return {
+      page: "browse",
+      producerSlug: null,
+      beatId: searchParams.get("beat"),
+    };
+  }
+
+  if (pathname === "/") {
+    return {
+      page: "home",
+      producerSlug: null,
+      beatId: null,
+    };
+  }
+
+  if (pathname === "/beats") {
+    return {
+      page: "browse",
+      producerSlug: null,
+      beatId: null,
+    };
+  }
+
+  if (pathname === "/drum-packs") {
+    return {
+      page: "drum-packs",
+      producerSlug: null,
+      beatId: null,
+    };
+  }
+
+  if (pathname === "/contact") {
+    return {
+      page: "contact",
+      producerSlug: null,
+      beatId: null,
+    };
+  }
+
+  /*
+   * Public producer profile:
+   *
+   * /producer/tellembeatzgo
+   */
+  const producerMatch =
+    pathname.match(/^\/producer\/([^/]+)$/i);
+
+  if (producerMatch) {
+    return {
+      page: "producer-profile",
+      producerSlug: decodeURIComponent(
+        producerMatch[1]
+      ),
+      beatId: null,
+    };
+  }
+
+  /*
+   * Unknown public path.
+   * The application will show the home page rather than
+   * breaking the entire application.
+   */
+  return {
+    page: "home",
+    producerSlug: null,
+    beatId: null,
+  };
+}
+
 function App() {
-  const [page, setPage] = useState("home");
+  const initialRoute = getRouteFromUrl();
+
+  const [page, setPage] = useState(
+    initialRoute.page
+  );
   const [authMode, setAuthMode] = useState("signin");
   const [signupType, setSignupType] = useState(null);
 
@@ -30,7 +139,8 @@ function App() {
   const [userRole, setUserRole] = useState(null);
 
   const [editingBeat, setEditingBeat] = useState(null);
-  const [selectedProducerId, setSelectedProducerId] = useState(null);
+  const [selectedProducerId, setSelectedProducerId] =
+    useState(null);
   const [producerAvatar, setProducerAvatar] = useState("");
   const [producerName, setProducerName] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
@@ -42,14 +152,18 @@ function App() {
     useState(null);
   const [messageId, setMessageId] = useState(null);
 
-  const [selectedAppealNotification, setSelectedAppealNotification] =
-    useState(null);
+  const [
+    selectedAppealNotification,
+    setSelectedAppealNotification,
+  ] = useState(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [confirmNewPassword, setConfirmNewPassword] = useState("");
-  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const [confirmNewPassword, setConfirmNewPassword] =
+    useState("");
+  const [isPasswordRecovery, setIsPasswordRecovery] =
+    useState(false);
 
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -57,11 +171,107 @@ function App() {
 
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
-  const [contactSubject, setContactSubject] = useState("");
-  const [contactMessage, setContactMessage] = useState("");
-  const [contactSending, setContactSending] = useState(false);
+  const [contactSubject, setContactSubject] =
+    useState("");
+  const [contactMessage, setContactMessage] =
+    useState("");
+  const [contactSending, setContactSending] =
+    useState(false);
 
-  async function loadUserProfile(userId, fallbackUser = null) {
+  /*
+   * Update browser URL without doing a full page reload.
+   *
+   * This gives us real URLs while preserving the existing
+   * single-page application behaviour.
+   */
+  function updateBrowserUrl(path, replace = false) {
+    if (
+      window.location.pathname === path &&
+      !window.location.search &&
+      !window.location.hash
+    ) {
+      return;
+    }
+
+    if (replace) {
+      window.history.replaceState({}, "", path);
+    } else {
+      window.history.pushState({}, "", path);
+    }
+  }
+
+  /*
+   * Update SEO information whenever a public page changes.
+   */
+  function updateSeo(pageName, producerDisplayName = "") {
+    let title = "Tellem Beat Store";
+    let description =
+      "Discover premium original beats from talented producers on Tellem Beat Store.";
+
+    if (pageName === "browse") {
+      title =
+        "Buy & Download Beats | Tellem Beat Store";
+
+      description =
+        "Browse and discover original Afrobeats, Amapiano, Ghanaian Drill, Trap, Dancehall and Hiplife beats on Tellem Beat Store.";
+    }
+
+    if (pageName === "drum-packs") {
+      title =
+        "Drum Packs | Tellem Beat Store";
+
+      description =
+        "Discover drum packs and production sounds from producers on Tellem Beat Store.";
+    }
+
+    if (pageName === "contact") {
+      title =
+        "Contact Tellem Beat Store";
+
+      description =
+        "Contact Tellem Beat Store about beats, licensing, purchases, producers and account support.";
+    }
+
+    if (
+      pageName === "producer-profile" &&
+      producerDisplayName
+    ) {
+      title =
+        `${producerDisplayName} | Producer Profile | Tellem Beat Store`;
+
+      description =
+        `Listen to and discover beats by ${producerDisplayName} on Tellem Beat Store.`;
+    }
+
+    document.title = title;
+
+    let metaDescription =
+      document.querySelector(
+        'meta[name="description"]'
+      );
+
+    if (!metaDescription) {
+      metaDescription =
+        document.createElement("meta");
+
+      metaDescription.setAttribute(
+        "name",
+        "description"
+      );
+
+      document.head.appendChild(metaDescription);
+    }
+
+    metaDescription.setAttribute(
+      "content",
+      description
+    );
+  }
+
+  async function loadUserProfile(
+    userId,
+    fallbackUser = null
+  ) {
     if (!userId) {
       setProducerAvatar("");
       setProducerName("");
@@ -75,12 +285,16 @@ function App() {
       fallbackUser?.user_metadata?.role ||
       null;
 
-    const { data: producerData, error: producerError } =
-      await supabase
-        .from("producers")
-        .select("avatar_url, display_name, role")
-        .eq("id", userId)
-        .maybeSingle();
+    const {
+      data: producerData,
+      error: producerError,
+    } = await supabase
+      .from("producers")
+      .select(
+        "avatar_url, display_name, role"
+      )
+      .eq("id", userId)
+      .maybeSingle();
 
     if (producerError) {
       console.error(
@@ -97,8 +311,12 @@ function App() {
           ""
       );
 
-      setUserRole(metadataAccountType || "guest");
+      setUserRole(
+        metadataAccountType || "guest"
+      );
+
       setIsAdmin(false);
+
       return;
     }
 
@@ -127,10 +345,6 @@ function App() {
   /*
    * Creates the Producer profile only after the user has
    * an authenticated Supabase session.
-   *
-   * This is important because email confirmation can cause
-   * supabase.auth.signUp() to return a user without a session.
-   * The producers INSERT policy requires auth.uid().
    */
   async function ensureProducerProfile(user) {
     if (!user?.id) return;
@@ -169,17 +383,18 @@ function App() {
       return;
     }
 
-    const { error: producerProfileError } =
-      await supabase
-        .from("producers")
-        .insert({
-          id: user.id,
-          display_name: displayName,
-          bio: null,
-          avatar_url: null,
-          contact_info: null,
-          role: "producer",
-        });
+    const {
+      error: producerProfileError,
+    } = await supabase
+      .from("producers")
+      .insert({
+        id: user.id,
+        display_name: displayName,
+        bio: null,
+        avatar_url: null,
+        contact_info: null,
+        role: "producer",
+      });
 
     if (producerProfileError) {
       console.error(
@@ -189,7 +404,9 @@ function App() {
       return;
     }
 
-    console.log("Producer profile created successfully.");
+    console.log(
+      "Producer profile created successfully."
+    );
   }
 
   async function checkAdminStatus(userId) {
@@ -198,12 +415,14 @@ function App() {
       return;
     }
 
-    const { data: producerData, error: producerError } =
-      await supabase
-        .from("producers")
-        .select("role")
-        .eq("id", userId)
-        .maybeSingle();
+    const {
+      data: producerData,
+      error: producerError,
+    } = await supabase
+      .from("producers")
+      .select("role")
+      .eq("id", userId)
+      .maybeSingle();
 
     if (producerError) {
       console.error(
@@ -220,27 +439,226 @@ function App() {
     );
   }
 
+  /*
+   * Resolve a public producer URL back to the Supabase
+   * producer ID.
+   *
+   * Example:
+   * /producer/tellembeatzgo
+   *
+   * -> finds display_name "Tellembeatzgo"
+   * -> gets its producer UUID
+   */
+  async function resolveProducerSlug(slug) {
+    if (!slug) return null;
+
+    try {
+      const {
+        data: producerRows,
+        error: producerError,
+      } = await supabase
+        .from("producers")
+        .select("id, display_name");
+
+      if (producerError) {
+        console.error(
+          "Unable to resolve producer URL:",
+          producerError.message
+        );
+
+        return null;
+      }
+
+      const normalizedSlug =
+        createProducerSlug(slug);
+
+      const matchedProducer =
+        (producerRows || []).find(
+          (producerRow) =>
+            createProducerSlug(
+              producerRow.display_name
+            ) === normalizedSlug
+        );
+
+      return matchedProducer?.id || null;
+    } catch (resolveError) {
+      console.error(
+        "Producer URL resolution error:",
+        resolveError
+      );
+
+      return null;
+    }
+  }
+
+  /*
+   * Load the initial public URL.
+   *
+   * This is especially important when someone opens:
+   * https://tellembeatstore.netlify.app/producer/tellembeatzgo
+   *
+   * directly or refreshes that page.
+   */
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadInitialRoute() {
+      const route = getRouteFromUrl();
+
+      if (!mounted) return;
+
+      if (
+        route.page ===
+        "producer-profile"
+      ) {
+        setPage("producer-profile");
+
+        const producerId =
+          await resolveProducerSlug(
+            route.producerSlug
+          );
+
+        if (!mounted) return;
+
+        if (producerId) {
+          setSelectedProducerId(
+            producerId
+          );
+
+          updateSeo(
+            "producer-profile",
+            route.producerSlug
+          );
+        } else {
+          setSelectedProducerId(null);
+          setPage("home");
+          updateBrowserUrl("/", true);
+          updateSeo("home");
+        }
+
+        return;
+      }
+
+      setPage(route.page);
+
+      if (route.page === "browse") {
+        updateSeo("browse");
+      } else if (
+        route.page === "drum-packs"
+      ) {
+        updateSeo("drum-packs");
+      } else if (
+        route.page === "contact"
+      ) {
+        updateSeo("contact");
+      } else {
+        updateSeo("home");
+      }
+    }
+
+    loadInitialRoute();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  /*
+   * Browser Back / Forward support.
+   */
+  useEffect(() => {
+    let mounted = true;
+
+    async function handlePopState() {
+      const route = getRouteFromUrl();
+
+      if (!mounted) return;
+
+      if (
+        route.page ===
+        "producer-profile"
+      ) {
+        setPage("producer-profile");
+
+        const producerId =
+          await resolveProducerSlug(
+            route.producerSlug
+          );
+
+        if (!mounted) return;
+
+        if (producerId) {
+          setSelectedProducerId(
+            producerId
+          );
+
+          updateSeo(
+            "producer-profile",
+            route.producerSlug
+          );
+        } else {
+          setSelectedProducerId(null);
+          setPage("home");
+          updateBrowserUrl("/", true);
+          updateSeo("home");
+        }
+
+        return;
+      }
+
+      setSelectedProducerId(null);
+      setPage(route.page);
+
+      if (route.page === "browse") {
+        updateSeo("browse");
+      } else if (
+        route.page === "drum-packs"
+      ) {
+        updateSeo("drum-packs");
+      } else if (
+        route.page === "contact"
+      ) {
+        updateSeo("contact");
+      } else {
+        updateSeo("home");
+      }
+    }
+
+    window.addEventListener(
+      "popstate",
+      handlePopState
+    );
+
+    return () => {
+      mounted = false;
+
+      window.removeEventListener(
+        "popstate",
+        handlePopState
+      );
+    };
+  }, []);
+
   useEffect(() => {
     let mounted = true;
 
     const recoveryInUrl =
-      window.location.hash.includes("type=recovery") ||
-      window.location.search.includes("type=recovery");
+      window.location.hash.includes(
+        "type=recovery"
+      ) ||
+      window.location.search.includes(
+        "type=recovery"
+      );
 
-    /*
-     * Register the auth listener immediately.
-     *
-     * Supabase uses PASSWORD_RECOVERY for password-reset
-     * redirects. Profile loading is deferred so that auth
-     * event processing is not blocked.
-     */
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
       (_event, currentSession) => {
         if (!mounted) return;
 
-        if (_event === "PASSWORD_RECOVERY") {
+        if (
+          _event === "PASSWORD_RECOVERY"
+        ) {
           setIsPasswordRecovery(true);
           setPage("reset-password");
           setMessage("");
@@ -288,10 +706,6 @@ function App() {
 
       if (!mounted) return;
 
-      /*
-       * Check the recovery URL before displaying the normal
-       * logged-in application.
-       */
       if (recoveryInUrl) {
         setIsPasswordRecovery(true);
         setPage("reset-password");
@@ -344,17 +758,22 @@ function App() {
 
     if (authMode === "forgot") {
       if (!email.trim()) {
-        setError("Please enter your email address.");
+        setError(
+          "Please enter your email address."
+        );
         return;
       }
 
       setLoading(true);
 
-      const { error: resetError } =
+      const {
+        error: resetError,
+      } =
         await supabase.auth.resetPasswordForEmail(
           email.trim(),
           {
-            redirectTo: `${window.location.origin}/`,
+            redirectTo:
+              `${window.location.origin}/`,
           }
         );
 
@@ -373,7 +792,9 @@ function App() {
     }
 
     if (!email.trim() || !password) {
-      setError("Please enter your email and password.");
+      setError(
+        "Please enter your email and password."
+      );
       return;
     }
 
@@ -395,7 +816,10 @@ function App() {
           ? "producer"
           : "guest";
 
-      const { data, error: signUpError } =
+      const {
+        data,
+        error: signUpError,
+      } =
         await supabase.auth.signUp({
           email: email.trim(),
           password,
@@ -413,24 +837,6 @@ function App() {
         return;
       }
 
-      /*
-       * IMPORTANT:
-       *
-       * When Supabase email confirmation is enabled,
-       * signUp() can return data.user while data.session
-       * is null.
-       *
-       * The producers INSERT policy requires an authenticated
-       * session, so we must NOT insert the Producer profile
-       * using data.user alone.
-       *
-       * If email confirmation is disabled and a session is
-       * immediately available, create the profile now.
-       *
-       * If email confirmation is enabled, the profile will
-       * be created by ensureProducerProfile() after the user
-       * confirms the email and signs in.
-       */
       if (
         accountType === "producer" &&
         data?.session?.user?.id
@@ -462,6 +868,9 @@ function App() {
 
         setSignupType(null);
         setPage("home");
+
+        updateBrowserUrl("/", true);
+        updateSeo("home");
       } else {
         setMessage(
           accountType === "producer"
@@ -473,7 +882,10 @@ function App() {
       return;
     }
 
-    const { data, error: signInError } =
+    const {
+      data,
+      error: signInError,
+    } =
       await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
@@ -488,10 +900,6 @@ function App() {
 
     setSession(data.session);
 
-    /*
-     * The user is now authenticated, so the Producer
-     * profile can safely be created if it does not exist.
-     */
     await ensureProducerProfile(
       data.session.user
     );
@@ -505,8 +913,14 @@ function App() {
       data.session.user.id
     );
 
-    setMessage("Signed in successfully.");
+    setMessage(
+      "Signed in successfully."
+    );
+
     setPage("home");
+
+    updateBrowserUrl("/", true);
+    updateSeo("home");
   }
 
   async function handlePasswordReset(event) {
@@ -516,18 +930,27 @@ function App() {
     setError("");
 
     if (newPassword.length < 6) {
-      setError("Password must be at least 6 characters.");
+      setError(
+        "Password must be at least 6 characters."
+      );
       return;
     }
 
-    if (newPassword !== confirmNewPassword) {
-      setError("Passwords do not match.");
+    if (
+      newPassword !==
+      confirmNewPassword
+    ) {
+      setError(
+        "Passwords do not match."
+      );
       return;
     }
 
     setLoading(true);
 
-    const { error: updateError } =
+    const {
+      error: updateError,
+    } =
       await supabase.auth.updateUser({
         password: newPassword,
       });
@@ -562,7 +985,9 @@ function App() {
     setMessage("");
     setError("");
 
-    const { error: signOutError } =
+    const {
+      error: signOutError,
+    } =
       await supabase.auth.signOut();
 
     if (signOutError) {
@@ -582,7 +1007,13 @@ function App() {
     setSelectedAppealNotification(null);
     setSignupType(null);
     setPage("home");
-    setMessage("Signed out successfully.");
+
+    updateBrowserUrl("/", true);
+    updateSeo("home");
+
+    setMessage(
+      "Signed out successfully."
+    );
   }
 
   function openSignIn() {
@@ -786,9 +1217,14 @@ function App() {
   }
 
   function openDrumPacks() {
+    setEditingBeat(null);
+    setSelectedProducerId(null);
     setPage("drum-packs");
     setMessage("");
     setError("");
+
+    updateBrowserUrl("/drum-packs");
+    updateSeo("drum-packs");
   }
 
   function openAlbums() {
@@ -877,16 +1313,101 @@ function App() {
     setError("");
   }
 
-  function openProducerProfile(producerId) {
+  /*
+   * Open a producer profile using a real SEO-friendly URL.
+   *
+   * The child components still send the producer UUID,
+   * so none of their existing functionality needs to change.
+   */
+  async function openProducerProfile(
+    producerId
+  ) {
     if (!producerId) {
-      setError("Producer profile is not available.");
+      setError(
+        "Producer profile is not available."
+      );
       return;
     }
 
-    setSelectedProducerId(producerId);
+    setSelectedProducerId(
+      producerId
+    );
+
     setPage("producer-profile");
     setMessage("");
     setError("");
+
+    try {
+      const {
+        data: producerData,
+        error: producerError,
+      } = await supabase
+        .from("producers")
+        .select(
+          "id, display_name"
+        )
+        .eq("id", producerId)
+        .maybeSingle();
+
+      if (producerError) {
+        console.error(
+          "Unable to load producer URL:",
+          producerError.message
+        );
+
+        /*
+         * Keep the profile functional even if the
+         * display name lookup fails.
+         */
+        updateBrowserUrl(
+          `/producer/${encodeURIComponent(
+            producerId
+          )}`
+        );
+
+        updateSeo(
+          "producer-profile",
+          "Producer"
+        );
+
+        return;
+      }
+
+      const slug = createProducerSlug(
+        producerData?.display_name
+      );
+
+      if (!slug) {
+        updateBrowserUrl(
+          `/producer/${encodeURIComponent(
+            producerId
+          )}`
+        );
+
+        updateSeo(
+          "producer-profile",
+          "Producer"
+        );
+
+        return;
+      }
+
+      updateBrowserUrl(
+        `/producer/${encodeURIComponent(
+          slug
+        )}`
+      );
+
+      updateSeo(
+        "producer-profile",
+        producerData.display_name
+      );
+    } catch (profileError) {
+      console.error(
+        "Unable to create producer URL:",
+        profileError
+      );
+    }
   }
 
   function openContact() {
@@ -895,6 +1416,9 @@ function App() {
     setPage("contact");
     setMessage("");
     setError("");
+
+    updateBrowserUrl("/contact");
+    updateSeo("contact");
   }
 
   async function handleContactSubmit(event) {
@@ -909,21 +1433,24 @@ function App() {
       !contactSubject.trim() ||
       !contactMessage.trim()
     ) {
-      setError("Please complete all contact form fields.");
+      setError(
+        "Please complete all contact form fields."
+      );
       return;
     }
 
     setContactSending(true);
 
-    const { error: contactError } =
-      await supabase
-        .from("contact_messages")
-        .insert({
-          name: contactName.trim(),
-          email: contactEmail.trim(),
-          subject: contactSubject.trim(),
-          message: contactMessage.trim(),
-        });
+    const {
+      error: contactError,
+    } = await supabase
+      .from("contact_messages")
+      .insert({
+        name: contactName.trim(),
+        email: contactEmail.trim(),
+        subject: contactSubject.trim(),
+        message: contactMessage.trim(),
+      });
 
     setContactSending(false);
 
@@ -950,8 +1477,14 @@ function App() {
     );
   }
 
-  function handleNavigate(nextPage, data) {
-    if (nextPage === "producer-profile") {
+  function handleNavigate(
+    nextPage,
+    data
+  ) {
+    if (
+      nextPage ===
+      "producer-profile"
+    ) {
       openProducerProfile(data);
       return;
     }
@@ -977,7 +1510,10 @@ function App() {
     }
 
     if (nextPage === "messages") {
-      if (data && typeof data === "object") {
+      if (
+        data &&
+        typeof data === "object"
+      ) {
         openMessages(data);
       } else {
         openMessages();
@@ -996,12 +1532,17 @@ function App() {
       return;
     }
 
-    if (nextPage === "upload-drum-pack") {
+    if (
+      nextPage ===
+      "upload-drum-pack"
+    ) {
       openUploadDrumPack();
       return;
     }
 
-    if (nextPage === "drum-packs") {
+    if (
+      nextPage === "drum-packs"
+    ) {
       openDrumPacks();
       return;
     }
@@ -1021,7 +1562,10 @@ function App() {
       return;
     }
 
-    if (nextPage === "my-drum-packs") {
+    if (
+      nextPage ===
+      "my-drum-packs"
+    ) {
       openMyDrumPacks();
       return;
     }
@@ -1045,9 +1589,13 @@ function App() {
     setMessageRecipientId(null);
     setMessageId(null);
     setSelectedAppealNotification(null);
+
     setPage("home");
     setMessage("");
     setError("");
+
+    updateBrowserUrl("/");
+    updateSeo("home");
   }
 
   function goBrowse() {
@@ -1056,9 +1604,13 @@ function App() {
     setMessageRecipientId(null);
     setMessageId(null);
     setSelectedAppealNotification(null);
+
     setPage("browse");
     setMessage("");
     setError("");
+
+    updateBrowserUrl("/beats");
+    updateSeo("browse");
   }
 
   function returnToMyBeats() {
@@ -1073,11 +1625,10 @@ function App() {
     goBrowse();
   }
 
-  /*
-   * Recovery screen gets priority over the normal
-   * logged-in application.
-   */
-  if (isPasswordRecovery && page === "reset-password") {
+  if (
+    isPasswordRecovery &&
+    page === "reset-password"
+  ) {
     return (
       <div className="app">
         <main className="app-main">
@@ -1102,10 +1653,15 @@ function App() {
               </h1>
 
               <p className="auth-description">
-                Enter a new password for your Tellem Beat Store account.
+                Enter a new password for your
+                Tellem Beat Store account.
               </p>
 
-              <form onSubmit={handlePasswordReset}>
+              <form
+                onSubmit={
+                  handlePasswordReset
+                }
+              >
                 <label>
                   New Password
                 </label>
@@ -1114,7 +1670,9 @@ function App() {
                   type="password"
                   value={newPassword}
                   onChange={(event) =>
-                    setNewPassword(event.target.value)
+                    setNewPassword(
+                      event.target.value
+                    )
                   }
                   placeholder="Enter your new password"
                   required
@@ -1128,9 +1686,13 @@ function App() {
 
                 <input
                   type="password"
-                  value={confirmNewPassword}
+                  value={
+                    confirmNewPassword
+                  }
                   onChange={(event) =>
-                    setConfirmNewPassword(event.target.value)
+                    setConfirmNewPassword(
+                      event.target.value
+                    )
                   }
                   placeholder="Confirm your new password"
                   required
@@ -1166,7 +1728,10 @@ function App() {
     );
   }
 
-  if (loading && !session) {
+  if (
+    loading &&
+    !session
+  ) {
     return (
       <div className="loading-screen">
         <div className="loading-content">
@@ -1176,7 +1741,9 @@ function App() {
 
           <div className="loading-line"></div>
 
-          <p>Loading Beat Store...</p>
+          <p>
+            Loading Beat Store...
+          </p>
         </div>
       </div>
     );
@@ -1184,9 +1751,13 @@ function App() {
 
   const displayName =
     producerName ||
-    session?.user?.user_metadata?.display_name ||
-    session?.user?.user_metadata?.name ||
-    session?.user?.email?.split("@")[0] ||
+    session?.user?.user_metadata
+      ?.display_name ||
+    session?.user?.user_metadata
+      ?.name ||
+    session?.user?.email?.split(
+      "@"
+    )[0] ||
     "Artist";
 
   const isProducer =
@@ -1206,7 +1777,9 @@ function App() {
             </div>
 
             <div>
-              <span>TELLEM</span>{" "}
+              <span>
+                TELLEM
+              </span>{" "}
               BEAT STORE
             </div>
           </div>
@@ -1260,19 +1833,22 @@ function App() {
               CONTACT
             </button>
 
-            {session && isAdmin && (
-              <button
-                type="button"
-                onClick={openAdminDashboard}
-                className={`admin-nav-button ${
-                  page === "admin"
-                    ? "active"
-                    : ""
-                }`}
-              >
-                ADMIN
-              </button>
-            )}
+            {session &&
+              isAdmin && (
+                <button
+                  type="button"
+                  onClick={
+                    openAdminDashboard
+                  }
+                  className={`admin-nav-button ${
+                    page === "admin"
+                      ? "active"
+                      : ""
+                  }`}
+                >
+                  ADMIN
+                </button>
+              )}
           </nav>
 
           {page === "browse" && (
@@ -1315,8 +1891,12 @@ function App() {
               <div className="account-area">
                 <NotificationBell
                   user={session.user}
-                  onOpenMessages={openMessages}
-                  onOpenAppeal={openAppeal}
+                  onOpenMessages={
+                    openMessages
+                  }
+                  onOpenAppeal={
+                    openAppeal
+                  }
                 />
 
                 <button
@@ -1331,8 +1911,12 @@ function App() {
                 >
                   {producerAvatar ? (
                     <img
-                      src={producerAvatar}
-                      alt={displayName}
+                      src={
+                        producerAvatar
+                      }
+                      alt={
+                        displayName
+                      }
                       className="header-avatar"
                     />
                   ) : (
@@ -1357,7 +1941,9 @@ function App() {
 
                 <button
                   type="button"
-                  onClick={handleSignOut}
+                  onClick={
+                    handleSignOut
+                  }
                   className="header-button"
                 >
                   SIGN OUT
@@ -1375,15 +1961,22 @@ function App() {
             className="dashboard-toggle"
             onClick={() =>
               setDashboardOpen(
-                (current) => !current
+                (current) =>
+                  !current
               )
             }
-            aria-expanded={dashboardOpen}
+            aria-expanded={
+              dashboardOpen
+            }
           >
-            <span>DASHBOARD</span>
+            <span>
+              DASHBOARD
+            </span>
 
             <span className="dashboard-toggle-arrow">
-              {dashboardOpen ? "▲" : "▼"}
+              {dashboardOpen
+                ? "▲"
+                : "▼"}
             </span>
           </button>
 
@@ -1398,7 +1991,9 @@ function App() {
                     : "dashboard-menu-item"
                 }
               >
-                <span>⌂</span>
+                <span>
+                  ⌂
+                </span>
                 Return Home
               </button>
 
@@ -1411,20 +2006,26 @@ function App() {
                     : "dashboard-menu-item"
                 }
               >
-                <span>♪</span>
+                <span>
+                  ♪
+                </span>
                 Search Beats
               </button>
 
               <button
                 type="button"
-                onClick={openMessages}
+                onClick={
+                  openMessages
+                }
                 className={
                   page === "messages"
                     ? "dashboard-menu-item active"
                     : "dashboard-menu-item"
                 }
               >
-                <span>💬</span>
+                <span>
+                  💬
+                </span>
                 Messages
               </button>
 
@@ -1442,33 +2043,43 @@ function App() {
                     : "dashboard-menu-item"
                 }
               >
-                <span>⚙</span>
+                <span>
+                  ⚙
+                </span>
                 Settings
               </button>
 
               <button
                 type="button"
-                onClick={openAlbums}
+                onClick={
+                  openAlbums
+                }
                 className={
                   page === "albums"
                     ? "dashboard-menu-item active"
                     : "dashboard-menu-item"
                 }
               >
-                <span>▤</span>
+                <span>
+                  ▤
+                </span>
                 Albums
               </button>
 
               <button
                 type="button"
-                onClick={openPlaylists}
+                onClick={
+                  openPlaylists
+                }
                 className={
                   page === "playlists"
                     ? "dashboard-menu-item active"
                     : "dashboard-menu-item"
                 }
               >
-                <span>♫</span>
+                <span>
+                  ♫
+                </span>
                 Playlists
               </button>
 
@@ -1476,47 +2087,63 @@ function App() {
                 <>
                   <button
                     type="button"
-                    onClick={openUploadBeat}
+                    onClick={
+                      openUploadBeat
+                    }
                     className={
                       page === "upload"
                         ? "dashboard-menu-item active"
                         : "dashboard-menu-item"
                     }
                   >
-                    <span>↑</span>
+                    <span>
+                      ↑
+                    </span>
                     Upload Beat
                   </button>
 
                   <button
                     type="button"
-                    onClick={openUploadDrumPack}
+                    onClick={
+                      openUploadDrumPack
+                    }
                     className={
-                      page === "upload-drum-pack"
+                      page ===
+                      "upload-drum-pack"
                         ? "dashboard-menu-item active"
                         : "dashboard-menu-item"
                     }
                   >
-                    <span>▣</span>
+                    <span>
+                      ▣
+                    </span>
                     Upload Drum Pack
                   </button>
 
                   <button
                     type="button"
-                    onClick={openDrumPacks}
+                    onClick={
+                      openDrumPacks
+                    }
                     className={
-                      page === "drum-packs"
+                      page ===
+                      "drum-packs"
                         ? "dashboard-menu-item active"
                         : "dashboard-menu-item"
                     }
                   >
-                    <span>♫</span>
+                    <span>
+                      ♫
+                    </span>
                     Drum Packs
                   </button>
 
                   <div
                     style={{
-                      marginTop: "10px",
-                      paddingTop: "12px",
+                      marginTop:
+                        "10px",
+                      paddingTop:
+                        "12px",
                       borderTop:
                         "1px solid rgba(255,255,255,0.08)",
                     }}
@@ -1525,10 +2152,14 @@ function App() {
                       style={{
                         padding:
                           "0 16px 8px",
-                        color: "#d6a84f",
-                        fontSize: "10px",
-                        fontWeight: "900",
-                        letterSpacing: "1.5px",
+                        color:
+                          "#d6a84f",
+                        fontSize:
+                          "10px",
+                        fontWeight:
+                          "900",
+                        letterSpacing:
+                          "1.5px",
                       }}
                     >
                       MY UPLOADS
@@ -1536,35 +2167,49 @@ function App() {
 
                     <button
                       type="button"
-                      onClick={openMyBeats}
+                      onClick={
+                        openMyBeats
+                      }
                       className={
-                        page === "mybeats"
+                        page ===
+                        "mybeats"
                           ? "dashboard-menu-item active"
                           : "dashboard-menu-item"
                       }
                       style={{
-                        paddingLeft: "32px",
-                        fontSize: "13px",
+                        paddingLeft:
+                          "32px",
+                        fontSize:
+                          "13px",
                       }}
                     >
-                      <span>♪</span>
+                      <span>
+                        ♪
+                      </span>
                       My Beats
                     </button>
 
                     <button
                       type="button"
-                      onClick={openMyDrumPacks}
+                      onClick={
+                        openMyDrumPacks
+                      }
                       className={
-                        page === "my-drum-packs"
+                        page ===
+                        "my-drum-packs"
                           ? "dashboard-menu-item active"
                           : "dashboard-menu-item"
                       }
                       style={{
-                        paddingLeft: "32px",
-                        fontSize: "13px",
+                        paddingLeft:
+                          "32px",
+                        fontSize:
+                          "13px",
                       }}
                     >
-                      <span>🥁</span>
+                      <span>
+                        🥁
+                      </span>
                       My Drum Packs
                     </button>
                   </div>
@@ -1603,19 +2248,28 @@ function App() {
 
                 <h1>
                   FIND.
-                  <span> FEEL.</span>
-                  <strong> CREATE.</strong>
+                  <span>
+                    {" "}
+                    FEEL.
+                  </span>
+                  <strong>
+                    {" "}
+                    CREATE.
+                  </strong>
                 </h1>
 
                 <p>
-                  Discover premium original beats from
-                  talented producers. Find the sound that
-                  turns your next idea into music.
+                  Discover premium original
+                  beats from talented producers.
+                  Find the sound that turns your
+                  next idea into music.
                 </p>
 
                 <form
                   className="hero-search"
-                  onSubmit={handleSearch}
+                  onSubmit={
+                    handleSearch
+                  }
                 >
                   <span className="search-icon">
                     🔍
@@ -1623,10 +2277,16 @@ function App() {
 
                   <input
                     type="search"
-                    value={searchTerm}
-                    onChange={(event) =>
+                    value={
+                      searchTerm
+                    }
+                    onChange={(
+                      event
+                    ) =>
                       setSearchTerm(
-                        event.target.value
+                        event
+                          .target
+                          .value
                       )
                     }
                     placeholder="Search beats by genre..."
@@ -1691,7 +2351,9 @@ function App() {
                 <div className="hero-actions">
                   <button
                     type="button"
-                    onClick={goBrowse}
+                    onClick={
+                      goBrowse
+                    }
                     className="hero-button primary"
                   >
                     EXPLORE BEATS
@@ -1704,7 +2366,9 @@ function App() {
                   <div className="hero-neon-ring"></div>
 
                   <img
-                    src={heroWoman}
+                    src={
+                      heroWoman
+                    }
                     alt="Tellem Beat Store Producer"
                   />
 
@@ -1728,45 +2392,62 @@ function App() {
 
                   <button
                     type="button"
-                    onClick={goBrowse}
+                    onClick={
+                      goBrowse
+                    }
                     className="view-all-button"
                   >
                     VIEW ALL BEATS
-                    <span>→</span>
+                    <span>
+                      →
+                    </span>
                   </button>
                 </div>
 
                 <LatestBeats
-                  onNavigate={handleNavigate}
+                  onNavigate={
+                    handleNavigate
+                  }
                 />
               </div>
             </section>
           </>
         )}
 
-        {page === "messages" && session && (
-          <Messages
-            user={session.user}
-            isAdmin={isAdmin}
-            onNavigate={handleNavigate}
-            initialRecipientId={
-              messageRecipientId
-            }
-            initialMessageId={
-              messageId
-            }
-          />
-        )}
+        {page === "messages" &&
+          session && (
+            <Messages
+              user={
+                session.user
+              }
+              isAdmin={
+                isAdmin
+              }
+              onNavigate={
+                handleNavigate
+              }
+              initialRecipientId={
+                messageRecipientId
+              }
+              initialMessageId={
+                messageId
+              }
+            />
+          )}
 
         {page === "appeal" &&
           session &&
           selectedAppealNotification && (
             <AppealBeat
-              user={session.user}
+              user={
+                session.user
+              }
               notification={
                 selectedAppealNotification
               }
-              onNavigate={handleNavigate}
+              onNavigate={
+                handleNavigate
+              }
             />
           )}
 
@@ -1783,9 +2464,11 @@ function App() {
                 </h1>
 
                 <p>
-                  Have a question about a beat, licensing,
-                  purchases, producers or your account?
-                  Send us a message and we'll get back to you.
+                  Have a question about a
+                  beat, licensing, purchases,
+                  producers or your account?
+                  Send us a message and we'll
+                  get back to you.
                 </p>
               </div>
 
@@ -1802,8 +2485,9 @@ function App() {
                       </h3>
 
                       <p>
-                        Need help choosing a beat or
-                        understanding our licensing options?
+                        Need help choosing a
+                        beat or understanding
+                        our licensing options?
                       </p>
                     </div>
                   </div>
@@ -1819,8 +2503,9 @@ function App() {
                       </h3>
 
                       <p>
-                        Are you a producer looking to
-                        upload and sell your beats on
+                        Are you a producer
+                        looking to upload and
+                        sell your beats on
                         Tellem Beat Store?
                       </p>
                     </div>
@@ -1837,8 +2522,10 @@ function App() {
                       </h3>
 
                       <p>
-                        Contact our team about your account,
-                        downloads, purchases or other questions.
+                        Contact our team about
+                        your account, downloads,
+                        purchases or other
+                        questions.
                       </p>
                     </div>
                   </div>
@@ -1846,7 +2533,9 @@ function App() {
 
                 <form
                   className="contact-form"
-                  onSubmit={handleContactSubmit}
+                  onSubmit={
+                    handleContactSubmit
+                  }
                 >
                   <label htmlFor="contact-name">
                     Your Name
@@ -1855,10 +2544,16 @@ function App() {
                   <input
                     id="contact-name"
                     type="text"
-                    value={contactName}
-                    onChange={(event) =>
+                    value={
+                      contactName
+                    }
+                    onChange={(
+                      event
+                    ) =>
                       setContactName(
-                        event.target.value
+                        event
+                          .target
+                          .value
                       )
                     }
                     placeholder="Enter your name"
@@ -1872,10 +2567,16 @@ function App() {
                   <input
                     id="contact-email"
                     type="email"
-                    value={contactEmail}
-                    onChange={(event) =>
+                    value={
+                      contactEmail
+                    }
+                    onChange={(
+                      event
+                    ) =>
                       setContactEmail(
-                        event.target.value
+                        event
+                          .target
+                          .value
                       )
                     }
                     placeholder="you@example.com"
@@ -1889,10 +2590,16 @@ function App() {
                   <input
                     id="contact-subject"
                     type="text"
-                    value={contactSubject}
-                    onChange={(event) =>
+                    value={
+                      contactSubject
+                    }
+                    onChange={(
+                      event
+                    ) =>
                       setContactSubject(
-                        event.target.value
+                        event
+                          .target
+                          .value
                       )
                     }
                     placeholder="How can we help?"
@@ -1906,10 +2613,16 @@ function App() {
                   <textarea
                     id="contact-message"
                     rows="6"
-                    value={contactMessage}
-                    onChange={(event) =>
+                    value={
+                      contactMessage
+                    }
+                    onChange={(
+                      event
+                    ) =>
                       setContactMessage(
-                        event.target.value
+                        event
+                          .target
+                          .value
                       )
                     }
                     placeholder="Write your message..."
@@ -1931,7 +2644,9 @@ function App() {
                   <button
                     type="submit"
                     className="contact-submit"
-                    disabled={contactSending}
+                    disabled={
+                      contactSending
+                    }
                   >
                     {contactSending
                       ? "SENDING..."
@@ -1942,7 +2657,9 @@ function App() {
 
               <button
                 type="button"
-                onClick={goHome}
+                onClick={
+                  goHome
+                }
                 className="contact-back"
               >
                 ← BACK TO HOME
@@ -1953,9 +2670,15 @@ function App() {
 
         {page === "browse" && (
           <BrowseBeats
-            onBackHome={goHome}
-            onNavigate={handleNavigate}
-            searchTerm={searchTerm}
+            onBackHome={
+              goHome
+            }
+            onNavigate={
+              handleNavigate
+            }
+            searchTerm={
+              searchTerm
+            }
           />
         )}
 
@@ -1963,42 +2686,69 @@ function App() {
           <DrumPacks />
         )}
 
-        {page === "albums" && session && (
-          <Albums
-            user={session.user}
-            onNavigate={handleNavigate}
-          />
-        )}
-
-        {page === "playlists" && session && (
-          <Playlists
-            user={session.user}
-            onNavigate={handleNavigate}
-          />
-        )}
-
-        {page === "producer-profile" &&
-          selectedProducerId && (
-            <ProducerProfile
-              producerId={selectedProducerId}
-              onNavigate={handleNavigate}
+        {page === "albums" &&
+          session && (
+            <Albums
+              user={
+                session.user
+              }
+              onNavigate={
+                handleNavigate
+              }
             />
           )}
 
-        {page === "artist" && session && (
-          <ArtistDashboard
-            user={session.user}
-            onNavigate={handleNavigate}
-          />
-        )}
+        {page === "playlists" &&
+          session && (
+            <Playlists
+              user={
+                session.user
+              }
+              onNavigate={
+                handleNavigate
+              }
+            />
+          )}
 
-        {page === "producer" &&
+        {page ===
+          "producer-profile" &&
+          selectedProducerId && (
+            <ProducerProfile
+              producerId={
+                selectedProducerId
+              }
+              onNavigate={
+                handleNavigate
+              }
+            />
+          )}
+
+        {page === "artist" &&
+          session && (
+            <ArtistDashboard
+              user={
+                session.user
+              }
+              onNavigate={
+                handleNavigate
+              }
+            />
+          )}
+
+        {page ===
+          "producer" &&
           session &&
           isProducer && (
             <ProducerDashboard
-              user={session.user}
-              onUploadBeat={openUploadBeat}
-              onNavigate={handleNavigate}
+              user={
+                session.user
+              }
+              onUploadBeat={
+                openUploadBeat
+              }
+              onNavigate={
+                handleNavigate
+              }
             />
           )}
 
@@ -2006,8 +2756,12 @@ function App() {
           session &&
           isAdmin && (
             <AdminDashboard
-              user={session.user}
-              onNavigate={handleNavigate}
+              user={
+                session.user
+              }
+              onNavigate={
+                handleNavigate
+              }
             />
           )}
 
@@ -2015,17 +2769,26 @@ function App() {
           session &&
           isProducer && (
             <UploadBeat
-              user={session.user}
-              onCancel={openProducerDashboard}
+              user={
+                session.user
+              }
+              onCancel={
+                openProducerDashboard
+              }
             />
           )}
 
-        {page === "upload-drum-pack" &&
+        {page ===
+          "upload-drum-pack" &&
           session &&
           isProducer && (
             <UploadDrumPack
-              user={session.user}
-              onCancel={openProducerDashboard}
+              user={
+                session.user
+              }
+              onCancel={
+                openProducerDashboard
+              }
             />
           )}
 
@@ -2033,29 +2796,47 @@ function App() {
           session &&
           isProducer && (
             <MyBeats
-              user={session.user}
-              onEditBeat={openEditBeat}
-              onNavigate={handleNavigate}
+              user={
+                session.user
+              }
+              onEditBeat={
+                openEditBeat
+              }
+              onNavigate={
+                handleNavigate
+              }
             />
           )}
 
-        {page === "my-drum-packs" &&
+        {page ===
+          "my-drum-packs" &&
           session &&
           isProducer && (
             <MyDrumPacks
-              user={session.user}
-              onNavigate={handleNavigate}
+              user={
+                session.user
+              }
+              onNavigate={
+                handleNavigate
+              }
             />
           )}
 
-        {page === "editbeat" &&
+        {page ===
+          "editbeat" &&
           session &&
           isProducer &&
           editingBeat && (
             <EditBeat
-              beat={editingBeat}
-              onSaved={returnToMyBeats}
-              onCancel={returnToMyBeats}
+              beat={
+                editingBeat
+              }
+              onSaved={
+                returnToMyBeats
+              }
+              onCancel={
+                returnToMyBeats
+              }
             />
           )}
 
@@ -2072,7 +2853,8 @@ function App() {
                 </span>
               </div>
 
-              {authMode === "signup" ? (
+              {authMode ===
+              "signup" ? (
                 <>
                   <div className="auth-eyebrow">
                     JOIN THE COMMUNITY
@@ -2083,40 +2865,53 @@ function App() {
                   </h1>
 
                   <p className="auth-description">
-                    Choose how you want to use Tellem Beat Store.
+                    Choose how you want to use
+                    Tellem Beat Store.
                   </p>
 
                   {!signupType ? (
                     <div
                       style={{
-                        display: "grid",
+                        display:
+                          "grid",
                         gridTemplateColumns:
                           "repeat(auto-fit, minmax(220px, 1fr))",
-                        gap: "18px",
-                        marginTop: "24px",
+                        gap:
+                          "18px",
+                        marginTop:
+                          "24px",
                       }}
                     >
                       <button
                         type="button"
                         onClick={() =>
-                          chooseSignupType("producer")
+                          chooseSignupType(
+                            "producer"
+                          )
                         }
                         style={{
-                          padding: "28px 20px",
-                          borderRadius: "16px",
+                          padding:
+                            "28px 20px",
+                          borderRadius:
+                            "16px",
                           border:
                             "1px solid rgba(214,168,79,0.45)",
                           background:
                             "linear-gradient(145deg, rgba(214,168,79,0.14), rgba(255,255,255,0.04))",
-                          color: "#fff",
-                          cursor: "pointer",
-                          textAlign: "left",
+                          color:
+                            "#fff",
+                          cursor:
+                            "pointer",
+                          textAlign:
+                            "left",
                         }}
                       >
                         <div
                           style={{
-                            fontSize: "38px",
-                            marginBottom: "12px",
+                            fontSize:
+                              "38px",
+                            marginBottom:
+                              "12px",
                           }}
                         >
                           🎧
@@ -2124,9 +2919,12 @@ function App() {
 
                         <strong
                           style={{
-                            display: "block",
-                            fontSize: "18px",
-                            marginBottom: "8px",
+                            display:
+                              "block",
+                            fontSize:
+                              "18px",
+                            marginBottom:
+                              "8px",
                           }}
                         >
                           SIGN UP AS A PRODUCER
@@ -2134,39 +2932,55 @@ function App() {
 
                         <span
                           style={{
-                            display: "block",
-                            fontSize: "13px",
-                            lineHeight: "1.6",
-                            opacity: 0.78,
+                            display:
+                              "block",
+                            fontSize:
+                              "13px",
+                            lineHeight:
+                              "1.6",
+                            opacity:
+                              0.78,
                           }}
                         >
-                          Upload and sell beats, manage your
-                          producer profile, albums, drum packs
-                          and marketplace uploads.
+                          Upload and sell
+                          beats, manage your
+                          producer profile,
+                          albums, drum packs
+                          and marketplace
+                          uploads.
                         </span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() =>
-                          chooseSignupType("guest")
+                          chooseSignupType(
+                            "guest"
+                          )
                         }
                         style={{
-                          padding: "28px 20px",
-                          borderRadius: "16px",
+                          padding:
+                            "28px 20px",
+                          borderRadius:
+                            "16px",
                           border:
                             "1px solid rgba(255,255,255,0.16)",
                           background:
                             "rgba(255,255,255,0.045)",
-                          color: "#fff",
-                          cursor: "pointer",
-                          textAlign: "left",
+                          color:
+                            "#fff",
+                          cursor:
+                            "pointer",
+                          textAlign:
+                            "left",
                         }}
                       >
                         <div
                           style={{
-                            fontSize: "38px",
-                            marginBottom: "12px",
+                            fontSize:
+                              "38px",
+                            marginBottom:
+                              "12px",
                           }}
                         >
                           👤
@@ -2174,9 +2988,12 @@ function App() {
 
                         <strong
                           style={{
-                            display: "block",
-                            fontSize: "18px",
-                            marginBottom: "8px",
+                            display:
+                              "block",
+                            fontSize:
+                              "18px",
+                            marginBottom:
+                              "8px",
                           }}
                         >
                           SIGN UP AS A GUEST
@@ -2184,15 +3001,24 @@ function App() {
 
                         <span
                           style={{
-                            display: "block",
-                            fontSize: "13px",
-                            lineHeight: "1.6",
-                            opacity: 0.78,
+                            display:
+                              "block",
+                            fontSize:
+                              "13px",
+                            lineHeight:
+                              "1.6",
+                            opacity:
+                              0.78,
                           }}
                         >
-                          Browse and play beats, follow producers,
-                          create playlists, use albums, send messages
-                          and enjoy the marketplace. Guests cannot
+                          Browse and play
+                          beats, follow
+                          producers, create
+                          playlists, use
+                          albums, send
+                          messages and enjoy
+                          the marketplace.
+                          Guests cannot
                           upload beats.
                         </span>
                       </button>
@@ -2201,22 +3027,29 @@ function App() {
                     <>
                       <div
                         style={{
-                          marginTop: "18px",
-                          marginBottom: "20px",
-                          padding: "14px 16px",
-                          borderRadius: "12px",
+                          marginTop:
+                            "18px",
+                          marginBottom:
+                            "20px",
+                          padding:
+                            "14px 16px",
+                          borderRadius:
+                            "12px",
                           background:
-                            signupType === "producer"
+                            signupType ===
+                            "producer"
                               ? "rgba(214,168,79,0.12)"
                               : "rgba(255,255,255,0.06)",
                           border:
-                            signupType === "producer"
+                            signupType ===
+                            "producer"
                               ? "1px solid rgba(214,168,79,0.35)"
                               : "1px solid rgba(255,255,255,0.12)",
                         }}
                       >
                         <strong>
-                          {signupType === "producer"
+                          {signupType ===
+                          "producer"
                             ? "🎧 Producer Account"
                             : "👤 Guest Account"}
                         </strong>
@@ -2224,32 +3057,50 @@ function App() {
                         <button
                           type="button"
                           onClick={() =>
-                            setSignupType(null)
+                            setSignupType(
+                              null
+                            )
                           }
                           style={{
-                            float: "right",
-                            background: "transparent",
-                            border: "none",
-                            color: "#d6a84f",
-                            cursor: "pointer",
-                            fontWeight: "800",
+                            float:
+                              "right",
+                            background:
+                              "transparent",
+                            border:
+                              "none",
+                            color:
+                              "#d6a84f",
+                            cursor:
+                              "pointer",
+                            fontWeight:
+                              "800",
                           }}
                         >
                           CHANGE
                         </button>
                       </div>
 
-                      <form onSubmit={handleAuth}>
+                      <form
+                        onSubmit={
+                          handleAuth
+                        }
+                      >
                         <label>
                           Email
                         </label>
 
                         <input
                           type="email"
-                          value={email}
-                          onChange={(event) =>
+                          value={
+                            email
+                          }
+                          onChange={(
+                            event
+                          ) =>
                             setEmail(
-                              event.target.value
+                              event
+                                .target
+                                .value
                             )
                           }
                           placeholder="you@example.com"
@@ -2262,15 +3113,23 @@ function App() {
 
                         <input
                           type="password"
-                          value={password}
-                          onChange={(event) =>
+                          value={
+                            password
+                          }
+                          onChange={(
+                            event
+                          ) =>
                             setPassword(
-                              event.target.value
+                              event
+                                .target
+                                .value
                             )
                           }
                           placeholder="Enter your password"
                           required
-                          minLength={6}
+                          minLength={
+                            6
+                          }
                         />
 
                         {error && (
@@ -2288,11 +3147,14 @@ function App() {
                         <button
                           type="submit"
                           className="auth-submit"
-                          disabled={loading}
+                          disabled={
+                            loading
+                          }
                         >
                           {loading
                             ? "PLEASE WAIT..."
-                            : signupType === "producer"
+                            : signupType ===
+                              "producer"
                             ? "CREATE PRODUCER ACCOUNT"
                             : "CREATE GUEST ACCOUNT"}
                         </button>
@@ -2305,7 +3167,9 @@ function App() {
 
                     <button
                       type="button"
-                      onClick={openSignIn}
+                      onClick={
+                        openSignIn
+                      }
                     >
                       Sign In
                     </button>
@@ -2314,41 +3178,55 @@ function App() {
               ) : (
                 <>
                   <div className="auth-eyebrow">
-                    {authMode === "signin"
+                    {authMode ===
+                    "signin"
                       ? "WELCOME BACK"
                       : "ACCOUNT RECOVERY"}
                   </div>
 
                   <h1>
-                    {authMode === "signin"
+                    {authMode ===
+                    "signin"
                       ? "Welcome Back"
                       : "Forgot Password"}
                   </h1>
 
                   <p className="auth-description">
-                    {authMode === "signin"
+                    {authMode ===
+                    "signin"
                       ? "Sign in to continue to your Tellem Beat Store account."
                       : "Enter your email address and we'll send you instructions to reset your password."}
                   </p>
 
-                  <form onSubmit={handleAuth}>
+                  <form
+                    onSubmit={
+                      handleAuth
+                    }
+                  >
                     <label>
                       Email
                     </label>
 
                     <input
                       type="email"
-                      value={email}
-                      onChange={(event) =>
+                      value={
+                        email
+                      }
+                      onChange={(
+                        event
+                      ) =>
                         setEmail(
-                          event.target.value
+                          event
+                            .target
+                            .value
                         )
                       }
                       placeholder="you@example.com"
                       required
                     />
 
-                    {authMode !== "forgot" && (
+                    {authMode !==
+                      "forgot" && (
                       <>
                         <label>
                           Password
@@ -2356,20 +3234,29 @@ function App() {
 
                         <input
                           type="password"
-                          value={password}
-                          onChange={(event) =>
+                          value={
+                            password
+                          }
+                          onChange={(
+                            event
+                          ) =>
                             setPassword(
-                              event.target.value
+                              event
+                                .target
+                                .value
                             )
                           }
                           placeholder="Enter your password"
                           required
-                          minLength={6}
+                          minLength={
+                            6
+                          }
                         />
                       </>
                     )}
 
-                    {authMode === "signin" && (
+                    {authMode ===
+                      "signin" && (
                       <div className="forgot-password-row">
                         <button
                           type="button"
@@ -2398,24 +3285,30 @@ function App() {
                     <button
                       type="submit"
                       className="auth-submit"
-                      disabled={loading}
+                      disabled={
+                        loading
+                      }
                     >
                       {loading
                         ? "PLEASE WAIT..."
-                        : authMode === "signin"
+                        : authMode ===
+                          "signin"
                         ? "SIGN IN"
                         : "SEND RESET LINK"}
                     </button>
                   </form>
 
                   <div className="switch-auth">
-                    {authMode === "signin" ? (
+                    {authMode ===
+                    "signin" ? (
                       <>
                         Don't have an account?{" "}
 
                         <button
                           type="button"
-                          onClick={openSignUp}
+                          onClick={
+                            openSignUp
+                          }
                         >
                           Sign Up
                         </button>
@@ -2426,7 +3319,9 @@ function App() {
 
                         <button
                           type="button"
-                          onClick={openSignIn}
+                          onClick={
+                            openSignIn
+                          }
                         >
                           Sign In
                         </button>
@@ -2442,11 +3337,15 @@ function App() {
 
       <footer className="footer">
         <div className="footer-logo">
-          TELLEM <span>BEAT STORE</span>
+          TELLEM{" "}
+          <span>
+            BEAT STORE
+          </span>
         </div>
 
         <p>
-          © 2026 Tellem Beat Store. All rights reserved.
+          © 2026 Tellem Beat Store.
+          All rights reserved.
         </p>
       </footer>
     </div>
