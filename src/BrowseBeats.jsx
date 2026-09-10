@@ -11,9 +11,7 @@ function BrowseBeats({
   const [savedBeats, setSavedBeats] = useState([]);
   const [likedBeats, setLikedBeats] = useState([]);
   const [commentText, setCommentText] = useState({});
-  const [searchTerm, setSearchTerm] = useState(
-    initialSearchTerm
-  );
+  const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
   const [selectedGenre, setSelectedGenre] = useState("All Genres");
   const [sortOption, setSortOption] = useState("Newest");
   const [user, setUser] = useState(null);
@@ -25,6 +23,7 @@ function BrowseBeats({
   const [likingBeatId, setLikingBeatId] = useState(null);
   const [error, setError] = useState("");
   const [commentError, setCommentError] = useState("");
+  const [failedCoverIds, setFailedCoverIds] = useState([]);
 
   async function loadUser() {
     const {
@@ -160,6 +159,7 @@ function BrowseBeats({
     const loadedBeats = data || [];
 
     setBeats(loadedBeats);
+    setFailedCoverIds([]);
 
     await loadComments(
       loadedBeats.map((beat) => beat.id)
@@ -178,6 +178,10 @@ function BrowseBeats({
       window.clearTimeout(timer);
     };
   }, []);
+
+  useEffect(() => {
+    setSearchTerm(initialSearchTerm || "");
+  }, [initialSearchTerm]);
 
   const genres = useMemo(() => {
     const values = beats
@@ -269,9 +273,7 @@ function BrowseBeats({
       return "";
     }
 
-    return new Date(
-      dateString
-    ).toLocaleDateString();
+    return new Date(dateString).toLocaleDateString();
   }
 
   function getProducerName(beat) {
@@ -307,6 +309,16 @@ function BrowseBeats({
     return likedBeats.includes(beatId);
   }
 
+  function handleCoverError(beatId) {
+    setFailedCoverIds((currentIds) => {
+      if (currentIds.includes(beatId)) {
+        return currentIds;
+      }
+
+      return [...currentIds, beatId];
+    });
+  }
+
   async function handleDownload(beat) {
     if (!beat.mp3_url) {
       setError(
@@ -333,9 +345,7 @@ function BrowseBeats({
     }
 
     try {
-      const response = await fetch(
-        beat.mp3_url
-      );
+      const response = await fetch(beat.mp3_url);
 
       if (!response.ok) {
         throw new Error(
@@ -358,20 +368,15 @@ function BrowseBeats({
         document.createElement("a");
 
       link.href = blobUrl;
-
       link.download =
         `${safeTitle || "beat"}.mp3`;
 
       document.body.appendChild(link);
-
       link.click();
-
       document.body.removeChild(link);
 
       window.setTimeout(() => {
-        window.URL.revokeObjectURL(
-          blobUrl
-        );
+        window.URL.revokeObjectURL(blobUrl);
       }, 1000);
     } catch (downloadError) {
       console.error(
@@ -452,9 +457,7 @@ function BrowseBeats({
           .eq("beat_id", beat.id);
 
       if (deleteError) {
-        setError(
-          deleteError.message
-        );
+        setError(deleteError.message);
         setLikingBeatId(null);
         return;
       }
@@ -474,9 +477,7 @@ function BrowseBeats({
           .eq("id", beat.id);
 
       if (updateError) {
-        setError(
-          updateError.message
-        );
+        setError(updateError.message);
         setLikingBeatId(null);
         return;
       }
@@ -509,9 +510,7 @@ function BrowseBeats({
           });
 
       if (insertError) {
-        setError(
-          insertError.message
-        );
+        setError(insertError.message);
         setLikingBeatId(null);
         return;
       }
@@ -534,9 +533,7 @@ function BrowseBeats({
           .eq("user_id", user.id)
           .eq("beat_id", beat.id);
 
-        setError(
-          updateError.message
-        );
+        setError(updateError.message);
         setLikingBeatId(null);
         return;
       }
@@ -566,7 +563,7 @@ function BrowseBeats({
 
   async function handleDislike(beat) {
     const currentDislikes =
-      beat.dislikes || 0;
+      Number(beat.dislikes) || 0;
 
     const { error: updateError } =
       await supabase
@@ -578,9 +575,7 @@ function BrowseBeats({
         .eq("id", beat.id);
 
     if (updateError) {
-      setError(
-        updateError.message
-      );
+      setError(updateError.message);
       return;
     }
 
@@ -621,9 +616,7 @@ function BrowseBeats({
           .eq("beat_id", beatId);
 
       if (deleteError) {
-        setError(
-          deleteError.message
-        );
+        setError(deleteError.message);
         setSavingBeatId(null);
         return;
       }
@@ -644,9 +637,7 @@ function BrowseBeats({
           });
 
       if (saveError) {
-        setError(
-          saveError.message
-        );
+        setError(saveError.message);
         setSavingBeatId(null);
         return;
       }
@@ -697,9 +688,7 @@ function BrowseBeats({
         .single();
 
     if (insertError) {
-      setCommentError(
-        insertError.message
-      );
+      setCommentError(insertError.message);
       setSubmittingBeatId(null);
       return;
     }
@@ -709,9 +698,7 @@ function BrowseBeats({
         ...currentComments,
         [beatId]: [
           data,
-          ...(currentComments[
-            beatId
-          ] || []),
+          ...(currentComments[beatId] || []),
         ],
       })
     );
@@ -730,9 +717,7 @@ function BrowseBeats({
     commentId,
     beatId
   ) {
-    setDeletingCommentId(
-      commentId
-    );
+    setDeletingCommentId(commentId);
     setCommentError("");
 
     const { error: deleteError } =
@@ -742,9 +727,7 @@ function BrowseBeats({
         .eq("id", commentId);
 
     if (deleteError) {
-      setCommentError(
-        deleteError.message
-      );
+      setCommentError(deleteError.message);
       setDeletingCommentId(null);
       return;
     }
@@ -753,13 +736,10 @@ function BrowseBeats({
       (currentComments) => ({
         ...currentComments,
         [beatId]: (
-          currentComments[
-            beatId
-          ] || []
+          currentComments[beatId] || []
         ).filter(
           (comment) =>
-            comment.id !==
-            commentId
+            comment.id !== commentId
         ),
       })
     );
@@ -916,19 +896,15 @@ function BrowseBeats({
             {filteredBeats.length}
           </strong>{" "}
           beat
-          {filteredBeats.length !==
-          1
+          {filteredBeats.length !== 1
             ? "s"
             : ""}{" "}
           found
         </div>
 
-        {filteredBeats.length ===
-        0 ? (
+        {filteredBeats.length === 0 ? (
           <div className="empty-state">
-            <h2>
-              No beats found
-            </h2>
+            <h2>No beats found</h2>
 
             <p>
               Try changing your search or
@@ -945,539 +921,543 @@ function BrowseBeats({
           </div>
         ) : (
           <div className="beats-grid">
-            {filteredBeats.map(
-              (beat) => {
-                const beatComments =
-                  getCommentsForBeat(
-                    beat.id
-                  );
+            {filteredBeats.map((beat) => {
+              const beatComments =
+                getCommentsForBeat(beat.id);
 
-                const producerName =
-                  getProducerName(
-                    beat
-                  );
+              const producerName =
+                getProducerName(beat);
 
-                const producerBio =
-                  getProducerBio(
-                    beat
-                  );
+              const producerBio =
+                getProducerBio(beat);
 
-                const producerAvatar =
-                  beat.producers?.avatar_url;
+              const producerAvatar =
+                beat.producers?.avatar_url;
 
-                const beatIsSaved =
-                  isBeatSaved(
-                    beat.id
-                  );
+              const beatIsSaved =
+                isBeatSaved(beat.id);
 
-                const beatIsLiked =
-                  isBeatLiked(
-                    beat.id
-                  );
+              const beatIsLiked =
+                isBeatLiked(beat.id);
 
-                return (
-                  <article
-                    className="beat-card"
-                    key={beat.id}
-                  >
-                    <div className="beat-cover">
-                      {beat.cover_url ? (
-                        <img
-                          src={
-                            beat.cover_url
-                          }
-                          alt={`${beat.title} cover`}
-                        />
-                      ) : (
-                        <div className="cover-placeholder">
-                          No Cover
-                        </div>
-                      )}
-                    </div>
+              const coverFailed =
+                failedCoverIds.includes(
+                  beat.id
+                );
 
-                    <div className="beat-content">
-                      <div className="beat-title-row">
-                        <div>
-                          <h2>
-                            {beat.title}
-                          </h2>
-
-                          <p className="producer-name">
-                            Produced by{" "}
-                            <strong>
-                              {
-                                producerName
-                              }
-                            </strong>
-                          </p>
-                        </div>
-
-                        <span className="license-badge">
-                          {
-                            getLicenseText(
-                              beat
-                            )
-                          }
-                        </span>
-                      </div>
-
+              return (
+                <article
+                  className="beat-card"
+                  key={beat.id}
+                >
+                  <div className="beat-cover">
+                    {beat.cover_url &&
+                    !coverFailed ? (
+                      <img
+                        src={beat.cover_url}
+                        alt={`${beat.title} cover`}
+                        onError={() =>
+                          handleCoverError(
+                            beat.id
+                          )
+                        }
+                      />
+                    ) : (
                       <div
-                        className="producer-profile-preview"
+                        className="cover-placeholder"
                         style={{
                           display: "flex",
-                          gap: "12px",
                           alignItems: "center",
-                          padding: "12px",
-                          margin: "12px 0",
-                          border: "1px solid #e5e7eb",
-                          borderRadius: "10px",
+                          justifyContent: "center",
+                          minHeight: "220px",
+                          padding: "20px",
+                          textAlign: "center",
                         }}
                       >
-                        {producerAvatar ? (
-                          <img
-                            src={
-                              producerAvatar
-                            }
-                            alt={`${producerName} profile`}
+                        <div>
+                          <strong
                             style={{
-                              width: "52px",
-                              height: "52px",
-                              borderRadius:
-                                "50%",
-                              objectFit:
-                                "cover",
-                            }}
-                          />
-                        ) : (
-                          <div
-                            style={{
-                              width: "52px",
-                              height: "52px",
-                              borderRadius:
-                                "50%",
-                              display: "flex",
-                              alignItems:
-                                "center",
-                              justifyContent:
-                                "center",
-                              background:
-                                "#f1f5f9",
-                              fontSize:
-                                "22px",
+                              display: "block",
+                              fontSize: "20px",
+                              marginBottom: "6px",
                             }}
                           >
-                            ðŸŽ§
-                          </div>
-                        )}
+                            MUSIC
+                          </strong>
 
-                        <div
-                          style={{
-                            flex: 1,
-                          }}
-                        >
+                          <span>
+                            {beat.title ||
+                              "Beat"}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="beat-content">
+                    <div className="beat-title-row">
+                      <div>
+                        <h2>
+                          {beat.title}
+                        </h2>
+
+                        <p className="producer-name">
+                          Produced by{" "}
                           <strong>
                             {producerName}
                           </strong>
-
-                          <p
-                            style={{
-                              margin:
-                                "4px 0 0",
-                              fontSize:
-                                "14px",
-                              lineHeight:
-                                "1.4",
-                            }}
-                          >
-                            {producerBio}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="beat-meta">
-                        <span>
-                          Genre:{" "}
-                          <strong>
-                            {
-                              beat.genre ||
-                              "N/A"
-                            }
-                          </strong>
-                        </span>
-
-                        {beat.other_genre && (
-                          <span>
-                            Other:{" "}
-                            <strong>
-                              {
-                                beat.other_genre
-                              }
-                            </strong>
-                          </span>
-                        )}
-
-                        <span>
-                          BPM:{" "}
-                          <strong>
-                            {
-                              beat.bpm ||
-                              "N/A"
-                            }
-                          </strong>
-                        </span>
-
-                        <span>
-                          Key:{" "}
-                          <strong>
-                            {
-                              beat.musical_key ||
-                              "N/A"
-                            }
-                          </strong>
-                        </span>
-                      </div>
-
-                      {beat.description && (
-                        <p className="beat-description">
-                          {
-                            beat.description
-                          }
                         </p>
+                      </div>
+
+                      <span className="license-badge">
+                        {getLicenseText(
+                          beat
+                        )}
+                      </span>
+                    </div>
+
+                    <div
+                      className="producer-profile-preview"
+                      style={{
+                        display: "flex",
+                        gap: "12px",
+                        alignItems: "center",
+                        padding: "12px",
+                        margin: "12px 0",
+                        border:
+                          "1px solid #e5e7eb",
+                        borderRadius: "10px",
+                      }}
+                    >
+                      {producerAvatar ? (
+                        <img
+                          src={producerAvatar}
+                          alt={`${producerName} profile`}
+                          style={{
+                            width: "52px",
+                            height: "52px",
+                            borderRadius:
+                              "50%",
+                            objectFit:
+                              "cover",
+                          }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: "52px",
+                            height: "52px",
+                            minWidth: "52px",
+                            borderRadius:
+                              "50%",
+                            display: "flex",
+                            alignItems:
+                              "center",
+                            justifyContent:
+                              "center",
+                            background:
+                              "#f1f5f9",
+                            fontSize: "18px",
+                            fontWeight:
+                              "700",
+                          }}
+                        >
+                          TB
+                        </div>
                       )}
 
-                      <p className="beat-date">
-                        Added{" "}
-                        {formatDate(
-                          beat.created_at
-                        )}
+                      <div
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                        }}
+                      >
+                        <strong>
+                          {producerName}
+                        </strong>
+
+                        <p
+                          style={{
+                            margin:
+                              "4px 0 0",
+                            fontSize:
+                              "14px",
+                            lineHeight:
+                              "1.4",
+                          }}
+                        >
+                          {producerBio}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="beat-meta">
+                      <span>
+                        Genre:{" "}
+                        <strong>
+                          {beat.genre ||
+                            "N/A"}
+                        </strong>
+                      </span>
+
+                      {beat.other_genre && (
+                        <span>
+                          Other:{" "}
+                          <strong>
+                            {
+                              beat.other_genre
+                            }
+                          </strong>
+                        </span>
+                      )}
+
+                      <span>
+                        BPM:{" "}
+                        <strong>
+                          {beat.bpm ||
+                            "N/A"}
+                        </strong>
+                      </span>
+
+                      <span>
+                        Key:{" "}
+                        <strong>
+                          {beat.musical_key ||
+                            "N/A"}
+                        </strong>
+                      </span>
+                    </div>
+
+                    {beat.description && (
+                      <p className="beat-description">
+                        {beat.description}
+                      </p>
+                    )}
+
+                    <p className="beat-date">
+                      Added{" "}
+                      {formatDate(
+                        beat.created_at
+                      )}
+                    </p>
+
+                    {beat.mp3_url && (
+                      <audio
+                        controls
+                        preload="none"
+                        className="beat-audio"
+                        src={beat.mp3_url}
+                      >
+                        Your browser does not
+                        support audio playback.
+                      </audio>
+                    )}
+
+                    <div className="beat-actions">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={
+                          likingBeatId ===
+                          beat.id
+                        }
+                        onClick={() =>
+                          handleLike(beat)
+                        }
+                      >
+                        {likingBeatId ===
+                        beat.id
+                          ? "Saving..."
+                          : beatIsLiked
+                          ? `Liked ${beat.likes || 0}`
+                          : `LIKE ${beat.likes || 0}`}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() =>
+                          handleDislike(beat)
+                        }
+                      >
+                        DISLIKE{" "}
+                        {beat.dislikes ||
+                          0}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={
+                          savingBeatId ===
+                          beat.id
+                        }
+                        onClick={() =>
+                          handleSaveBeat(
+                            beat.id
+                          )
+                        }
+                      >
+                        {savingBeatId ===
+                        beat.id
+                          ? "Saving..."
+                          : beatIsSaved
+                          ? "SAVED"
+                          : "SAVE BEAT"}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={() =>
+                          handleDownload(
+                            beat
+                          )
+                        }
+                      >
+                        Download Free MP3
+                      </button>
+
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() =>
+                          handlePaidLicenseContact(
+                            beat
+                          )
+                        }
+                      >
+                        Contact Producer
+                      </button>
+
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() =>
+                          handleViewProducerProfile(
+                            beat
+                          )
+                        }
+                      >
+                        View Producer Profile
+                      </button>
+                    </div>
+
+                    <div className="license-info">
+                      <h3>
+                        Free MP3 License
+                      </h3>
+
+                      <p>
+                        This beat is available
+                        for free download for
+                        listening, practice,
+                        writing, and
+                        non-commercial
+                        demonstration purposes
+                        only.
                       </p>
 
-                      {beat.mp3_url && (
-                        <audio
-                          controls
-                          preload="none"
-                          className="beat-audio"
-                          src={
-                            beat.mp3_url
+                      <ul>
+                        <li>
+                          No remakes
+                        </li>
+
+                        <li>
+                          No commercial songs
+                          or releases
+                        </li>
+
+                        <li>
+                          No instrumental
+                          samples
+                        </li>
+
+                        <li>
+                          No resale or
+                          redistribution
+                        </li>
+
+                        <li>
+                          No Content ID
+                          registration
+                        </li>
+
+                        <li>
+                          No copyright claims
+                        </li>
+                      </ul>
+
+                      <p>
+                        Producer{" "}
+                        <strong>
+                          {producerName}
+                        </strong>{" "}
+                        retains 100% ownership
+                        and copyright of the
+                        instrumental.
+                      </p>
+
+                      <p>
+                        A paid license must be
+                        obtained before using
+                        the beat commercially
+                        or releasing a song
+                        using the beat.
+                      </p>
+
+                      <p>
+                        Artist-name "Type Beat"
+                        titles are permitted for
+                        descriptive and search
+                        purposes only and do not
+                        imply endorsement,
+                        affiliation, or
+                        participation by the
+                        named artist.
+                      </p>
+                    </div>
+
+                    <div className="comments-section">
+                      <div className="comments-header">
+                        <h3>
+                          Comments (
+                          {
+                            beatComments.length
                           }
-                        >
-                          Your browser does not
-                          support audio playback.
-                        </audio>
+                          )
+                        </h3>
+                      </div>
+
+                      {commentsLoading &&
+                      beatComments.length ===
+                        0 ? (
+                        <p>
+                          Loading comments...
+                        </p>
+                      ) : beatComments.length ===
+                        0 ? (
+                        <p>
+                          No comments yet. Be
+                          the first to comment.
+                        </p>
+                      ) : (
+                        <div className="comments-list">
+                          {beatComments.map(
+                            (comment) => (
+                              <div
+                                className="comment-item"
+                                key={
+                                  comment.id
+                                }
+                              >
+                                <div className="comment-content">
+                                  <strong>
+                                    Artist
+                                  </strong>
+
+                                  <p>
+                                    {
+                                      comment.comment_text
+                                    }
+                                  </p>
+
+                                  <small>
+                                    {formatDate(
+                                      comment.created_at
+                                    )}
+                                  </small>
+                                </div>
+
+                                {user &&
+                                  user.id ===
+                                    comment.user_id && (
+                                    <button
+                                      type="button"
+                                      className="danger-button"
+                                      disabled={
+                                        deletingCommentId ===
+                                        comment.id
+                                      }
+                                      onClick={() =>
+                                        handleDeleteComment(
+                                          comment.id,
+                                          beat.id
+                                        )
+                                      }
+                                    >
+                                      {deletingCommentId ===
+                                      comment.id
+                                        ? "Deleting..."
+                                        : "Delete"}
+                                    </button>
+                                  )}
+                              </div>
+                            )
+                          )}
+                        </div>
                       )}
 
-                      <div className="beat-actions">
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          disabled={
-                            likingBeatId ===
-                            beat.id
-                          }
-                          onClick={() =>
-                            handleLike(
-                              beat
-                            )
-                          }
-                        >
-                          {likingBeatId ===
-                          beat.id
-                            ? "Saving..."
-                            : beatIsLiked
-                            ? `â¤ï¸ Liked ${beat.likes || 0}`
-                            : `ðŸ‘ ${beat.likes || 0}`}
-                        </button>
-
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          onClick={() =>
-                            handleDislike(
-                              beat
-                            )
-                          }
-                        >
-                          ðŸ‘Ž{" "}
-                          {beat.dislikes ||
-                            0}
-                        </button>
-
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          disabled={
-                            savingBeatId ===
-                            beat.id
-                          }
-                          onClick={() =>
-                            handleSaveBeat(
+                      <div className="comment-form">
+                        <textarea
+                          value={
+                            commentText[
                               beat.id
+                            ] || ""
+                          }
+                          onChange={(event) =>
+                            setCommentText(
+                              (
+                                currentText
+                              ) => ({
+                                ...currentText,
+                                [beat.id]:
+                                  event
+                                    .target
+                                    .value,
+                              })
                             )
                           }
-                        >
-                          {savingBeatId ===
-                          beat.id
-                            ? "Saving..."
-                            : beatIsSaved
-                            ? "â¤ï¸ Saved"
-                            : "ðŸ¤ Save Beat"}
-                        </button>
+                          placeholder={
+                            user
+                              ? "Write a comment..."
+                              : "Sign in to comment..."
+                          }
+                          disabled={!user}
+                          rows={3}
+                        />
 
                         <button
                           type="button"
                           className="primary-button"
+                          disabled={
+                            !user ||
+                            submittingBeatId ===
+                              beat.id
+                          }
                           onClick={() =>
-                            handleDownload(
-                              beat
+                            handleSubmitComment(
+                              beat.id
                             )
                           }
                         >
-                          Download Free MP3
-                        </button>
-
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          onClick={() =>
-                            handlePaidLicenseContact(
-                              beat
-                            )
-                          }
-                        >
-                          Contact Producer
-                        </button>
-
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          onClick={() =>
-                            handleViewProducerProfile(
-                              beat
-                            )
-                          }
-                        >
-                          View Producer Profile
+                          {submittingBeatId ===
+                          beat.id
+                            ? "Posting..."
+                            : "Post Comment"}
                         </button>
                       </div>
 
-                      <div className="license-info">
-                        <h3>
-                          Free MP3 License
-                        </h3>
-
-                        <p>
-                          This beat is available
-                          for free download for
-                          listening, practice,
-                          writing, and
-                          non-commercial
-                          demonstration purposes
-                          only.
+                      {commentError && (
+                        <p className="error-message">
+                          {commentError}
                         </p>
-
-                        <ul>
-                          <li>
-                            No remakes
-                          </li>
-
-                          <li>
-                            No commercial songs
-                            or releases
-                          </li>
-
-                          <li>
-                            No instrumental
-                            samples
-                          </li>
-
-                          <li>
-                            No resale or
-                            redistribution
-                          </li>
-
-                          <li>
-                            No Content ID
-                            registration
-                          </li>
-
-                          <li>
-                            No copyright claims
-                          </li>
-                        </ul>
-
-                        <p>
-                          Producer{" "}
-                          <strong>
-                            {producerName}
-                          </strong>{" "}
-                          retains 100% ownership
-                          and copyright of the
-                          instrumental.
-                        </p>
-
-                        <p>
-                          A paid license must be
-                          obtained before using
-                          the beat commercially
-                          or releasing a song
-                          using the beat.
-                        </p>
-
-                        <p>
-                          Artist-name â€œType Beatâ€
-                          titles are permitted for
-                          descriptive and search
-                          purposes only and do not
-                          imply endorsement,
-                          affiliation, or
-                          participation by the
-                          named artist.
-                        </p>
-                      </div>
-
-                      <div className="comments-section">
-                        <div className="comments-header">
-                          <h3>
-                            Comments (
-                            {
-                              beatComments.length
-                            }
-                            )
-                          </h3>
-                        </div>
-
-                        {commentsLoading &&
-                        beatComments.length ===
-                          0 ? (
-                          <p>
-                            Loading comments...
-                          </p>
-                        ) : beatComments.length ===
-                          0 ? (
-                          <p>
-                            No comments yet. Be
-                            the first to comment.
-                          </p>
-                        ) : (
-                          <div className="comments-list">
-                            {beatComments.map(
-                              (comment) => (
-                                <div
-                                  className="comment-item"
-                                  key={
-                                    comment.id
-                                  }
-                                >
-                                  <div className="comment-content">
-                                    <strong>
-                                      Artist
-                                    </strong>
-
-                                    <p>
-                                      {
-                                        comment.comment_text
-                                      }
-                                    </p>
-
-                                    <small>
-                                      {formatDate(
-                                        comment.created_at
-                                      )}
-                                    </small>
-                                  </div>
-
-                                  {user &&
-                                    user.id ===
-                                      comment.user_id && (
-                                      <button
-                                        type="button"
-                                        className="danger-button"
-                                        disabled={
-                                          deletingCommentId ===
-                                          comment.id
-                                        }
-                                        onClick={() =>
-                                          handleDeleteComment(
-                                            comment.id,
-                                            beat.id
-                                          )
-                                        }
-                                      >
-                                        {deletingCommentId ===
-                                        comment.id
-                                          ? "Deleting..."
-                                          : "Delete"}
-                                      </button>
-                                    )}
-                                </div>
-                              )
-                            )}
-                          </div>
-                        )}
-
-                        <div className="comment-form">
-                          <textarea
-                            value={
-                              commentText[
-                                beat.id
-                              ] || ""
-                            }
-                            onChange={(event) =>
-                              setCommentText(
-                                (
-                                  currentText
-                                ) => ({
-                                  ...currentText,
-                                  [beat.id]:
-                                    event
-                                      .target
-                                      .value,
-                                })
-                              )
-                            }
-                            placeholder={
-                              user
-                                ? "Write a comment..."
-                                : "Sign in to comment..."
-                            }
-                            disabled={!user}
-                            rows={3}
-                          />
-
-                          <button
-                            type="button"
-                            className="primary-button"
-                            disabled={
-                              !user ||
-                              submittingBeatId ===
-                                beat.id
-                            }
-                            onClick={() =>
-                              handleSubmitComment(
-                                beat.id
-                              )
-                            }
-                          >
-                            {submittingBeatId ===
-                            beat.id
-                              ? "Posting..."
-                              : "Post Comment"}
-                          </button>
-                        </div>
-
-                        {commentError && (
-                          <p className="error-message">
-                            {
-                              commentError
-                            }
-                          </p>
-                        )}
-                      </div>
+                      )}
                     </div>
-                  </article>
-                );
-              }
-            )}
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </div>
@@ -1486,4 +1466,3 @@ function BrowseBeats({
 }
 
 export default BrowseBeats;
-

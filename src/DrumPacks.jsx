@@ -15,7 +15,12 @@ function DrumPacks() {
     setError("");
 
     try {
-      const { data, error: fetchError } = await supabase
+      /*
+       * Load drum packs without using a Supabase relationship.
+       * This avoids errors caused by missing/incorrect foreign-key
+       * relationships between drum_packs and producers.
+       */
+      const { data: packs, error: fetchError } = await supabase
         .from("drum_packs")
         .select(`
           id,
@@ -26,12 +31,7 @@ function DrumPacks() {
           zip_url,
           cover_url,
           downloads,
-          created_at,
-          producers!beats_producer_id_fkey (
-            id,
-            display_name,
-            avatar_url
-          )
+          created_at
         `)
         .order("created_at", { ascending: false });
 
@@ -39,9 +39,73 @@ function DrumPacks() {
         throw fetchError;
       }
 
-      setDrumPacks(data || []);
+      const loadedPacks = packs || [];
+
+      /*
+       * Collect all producer IDs used by the drum packs.
+       */
+      const producerIds = [
+        ...new Set(
+          loadedPacks
+            .map((pack) => pack.producer_id)
+            .filter(Boolean)
+        ),
+      ];
+
+      let producers = [];
+
+      /*
+       * Load producer profiles separately.
+       * This does NOT require a foreign-key relationship.
+       */
+      if (producerIds.length > 0) {
+        const {
+          data: producerData,
+          error: producerError,
+        } = await supabase
+          .from("producers")
+          .select(`
+            id,
+            display_name,
+            avatar_url
+          `)
+          .in("id", producerIds);
+
+        if (producerError) {
+          console.error(
+            "Unable to load producer profiles:",
+            producerError.message
+          );
+        } else {
+          producers = producerData || [];
+        }
+      }
+
+      /*
+       * Create a quick producer lookup table.
+       */
+      const producerMap = {};
+
+      producers.forEach((producer) => {
+        producerMap[producer.id] = producer;
+      });
+
+      /*
+       * Attach the producer information to each drum pack.
+       */
+      const packsWithProducers = loadedPacks.map((pack) => ({
+        ...pack,
+        producers: pack.producer_id
+          ? producerMap[pack.producer_id] || null
+          : null,
+      }));
+
+      setDrumPacks(packsWithProducers);
     } catch (loadError) {
-      console.error("Unable to load drum packs:", loadError);
+      console.error(
+        "Unable to load drum packs:",
+        loadError
+      );
 
       setError(
         loadError.message ||
@@ -200,7 +264,7 @@ function DrumPacks() {
           <div style={styles.empty}>
 
             <div style={styles.emptyIcon}>
-              ðŸ¥
+              🥁
             </div>
 
             <h2>
@@ -242,7 +306,7 @@ function DrumPacks() {
                       <span
                         style={styles.placeholderIcon}
                       >
-                        ðŸ¥
+                        🥁
                       </span>
 
                       <small>
@@ -272,7 +336,7 @@ function DrumPacks() {
                   </h2>
 
                   <p style={styles.producer}>
-                    ðŸŽ§ {getProducerName(pack)}
+                    🎧 {getProducerName(pack)}
                   </p>
 
                   {pack.genre && (
@@ -290,7 +354,7 @@ function DrumPacks() {
                   <div style={styles.meta}>
 
                     <span>
-                      â¬‡{" "}
+                      ⬇{" "}
                       {Number(pack.downloads || 0)}{" "}
                       downloads
                     </span>
@@ -308,7 +372,7 @@ function DrumPacks() {
                     }
                     style={styles.downloadButton}
                   >
-                    â†“ FREE DOWNLOAD
+                    ↓ FREE DOWNLOAD
                   </button>
 
                 </div>
@@ -329,7 +393,6 @@ const styles = {
     maxWidth: "1600px",
     margin: "0 auto",
 
-    /* PULLED CLOSER TO LATEST BEATS */
     padding: "0 40px 80px",
 
     boxSizing: "border-box",
@@ -393,9 +456,6 @@ const styles = {
     marginBottom: "15px",
   },
 
-  /*
-   * SAME WIDTH STRUCTURE AS LATEST BEATS
-   */
   grid: {
     display: "grid",
     gridTemplateColumns:
